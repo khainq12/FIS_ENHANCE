@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+
+# Dataset
+data/
+*.zip
+*.tar
+*.gz
+
+# Training outputs
+out/
+runs/
+results/
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+*.log
+
+# Visualization outputs
+visualization/*.png
+visualization/*.jpg
+
+# OS
+.DS_Store
+
+# Env
+.env
+venv/
