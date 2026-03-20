@@ -73,6 +73,7 @@ def main():
 
         for x, _ in train_loader:
             x = x.to(device)
+
             snr = args.snr_min if args.snr_max <= args.snr_min else random.uniform(args.snr_min, args.snr_max)
 
             model.set_channel(channel_type=args.channel, snr=snr, rician_k=args.rician_k)
