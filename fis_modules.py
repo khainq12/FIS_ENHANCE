@@ -53,8 +53,8 @@ def _mf_high(x: torch.Tensor) -> torch.Tensor:
 
 def _mf_med(x: torch.Tensor) -> torch.Tensor:
     # peak at 0.5, zero at 0 and 1
-    return _clamp01(1.0 - torch.abs(x - 0.5) / 0.4)
-
+    # return _clamp01(1.0 - torch.abs(x - 0.5) / 0.4)
+    return torch.clamp(1.0 - torch.abs(x - 0.5) / 0.5, 0, 1)
 
 def _fuzzy_and(*args: torch.Tensor) -> torch.Tensor:
     out = args[0]
@@ -87,8 +87,8 @@ class FIS_Importance(nn.Module):
 
         # Consequent values for 7 rules (in [0,1])
         # (VL, L, M, H, VH) mapped into numeric values
-        self.c = torch.tensor([0.9, 0.85, 0.75, 0.65, 0.5, 0.4, 0.6])  # 7 consequents
-
+        # self.c = torch.tensor([0.9, 0.85, 0.75, 0.65, 0.5, 0.4, 0.6])  # 7 consequents
+        self.c = nn.Parameter(torch.tensor([0.9, 0.85, 0.75, 0.65, 0.5, 0.4, 0.6]))
     @staticmethod
     def _edge_from_m(m: torch.Tensor) -> torch.Tensor:
         # m: [B,H,W]
@@ -151,8 +151,7 @@ class FIS_Importance(nn.Module):
         r6 = _fuzzy_and(mH, vL, eL)
 
         rules = torch.stack([r0, r1, r2, r3, r4, r5, r6], dim=1)  # [B,7,H,W]
-        rules = rules + 1e-6          # chống zero
-        rules = rules ** 0.7          # mềm hơn sqrt
+        rules = rules + 0.05
         rules = rules / rules.sum(dim=1, keepdim=True)
         # Sugeno defuzzification with fixed consequents
         c = self.c.to(z.device).view(1, -1, 1, 1)  # [1,7,1,1]
@@ -170,6 +169,7 @@ class FIS_Importance(nn.Module):
 
         if return_rules:
             print("\n[DEBUG][FIS_Importance]")
+            print("I histogram:", torch.histc(I, bins=10))
             print(f"I stats: min={I.min().item():.4f}, max={I.max().item():.4f}, mean={I.mean().item():.4f}, std={I.std().item():.4f}")
             print(f"m std={m.std().item():.4f}, v std={v.std().item():.4f}, e std={e.std().item():.4f}")
 
@@ -208,15 +208,16 @@ class FIS_PowerAllocation(nn.Module):
         self.delta_min = float(delta_min)
         self.delta_max = float(delta_max)
         self.eps = eps
-        self.gamma = nn.Parameter(torch.tensor(1.0)) 
+        self.gamma = nn.Parameter(torch.tensor(2.0)) 
         # self.c = torch.tensor([1.40, 1.20, 1.10, 1.10, 1.00, 0.90])
-        self.c = torch.tensor([[2.0, 1.5, 1.2, 1.0, 0.7, 0.4]])
-
+        # self.c = torch.tensor([[2.5, 2.0, 1.5, 1.0, 0.6, 0.3]])
+        self.c = nn.Parameter(torch.tensor([[3.0, 2.5, 2.0, 1.0, 0.7, 0.4, 0.2]]))
     def forward(self, I, snr_db, budget=1.0, return_rules=False):
 
         s = (float(snr_db) - self.snr_min_db) / (
             self.snr_max_db - self.snr_min_db + self.eps
         )
+        s = max(0.0, min(1.0, s))
         s = torch.tensor(s, device=I.device, dtype=I.dtype).clamp(0.0, 1.0)
 
         S = s.view(1, 1, 1).expand_as(I)
@@ -229,9 +230,10 @@ class FIS_PowerAllocation(nn.Module):
         r2 = _fuzzy_and(iH, sH)
         r3 = _fuzzy_and(iM, sL)
         r4 = _fuzzy_and(iM, sM)
-        r5 = iL
+        r5 = _fuzzy_and(iL, sH)  # low importance + high SNR
+        r6 = _fuzzy_and(iL, sL)  # low importance + low SNR
 
-        rules = torch.stack([r0, r1, r2, r3, r4, r5], dim=1)
+        rules = torch.stack([r0, r1, r2, r3, r4, r5, r6], dim=1)
 
         c = self.c.to(I.device).view(1, -1, 1, 1)
         num = (rules * c).sum(dim=1)
@@ -248,16 +250,20 @@ class FIS_PowerAllocation(nn.Module):
         R = float(budget)
         A = 1.0 + R * (A_shrink - 1.0)
 
-        A = A.clamp(min=self.a_min, max=self.a_high)
-
+        # A = A.clamp(min=self.a_min, max=self.a_high)
+        # A = 1.0 + 2.5 * (A - 1.0)
         A = _mean_normalize(A, eps=self.eps)
         
-        A = 1.0 + self.gamma * (A - 1.0)
+       
         if not return_rules:
             return A
 
         if return_rules:
             print("\n[DEBUG][FIS_Power]")
+            print("A std before norm:", A.std().item())
+            print("A histogram:", torch.histc(A, bins=10))
+            print("snr_db:", snr_db)
+            print("snr_norm:", s)
             print("A std:", A.std().item())
             print("A mean:", A.mean().item())
             print(f"A_raw stats: min={A_raw.min().item():.4f}, max={A_raw.max().item():.4f}, std={A_raw.std().item():.4f}")
@@ -265,7 +271,7 @@ class FIS_PowerAllocation(nn.Module):
             print(f"delta={delta:.4f}, snr_norm={snr_u:.4f}, budget={budget}")
 
             rule_id = torch.argmax(rules, dim=1)
-            rule_counts = torch.bincount(rule_id.view(-1), minlength=6).float()
+            rule_counts = torch.bincount(rule_id.view(-1), minlength=7).float()
             rule_counts = rule_counts / rule_counts.sum()
 
             print("Rule usage (%):", (rule_counts * 100).cpu().numpy())

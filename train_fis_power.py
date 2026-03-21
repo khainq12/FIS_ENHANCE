@@ -74,7 +74,8 @@ def main():
         for x, _ in train_loader:
             x = x.to(device)
 
-            snr = args.snr_min if args.snr_max <= args.snr_min else random.uniform(args.snr_min, args.snr_max)
+            SNR_LIST = [1, 4, 7, 10, 13]
+            snr = random.choice(SNR_LIST)
 
             model.set_channel(channel_type=args.channel, snr=snr, rician_k=args.rician_k)
             _, x_hat = model(x, snr=snr, budget=args.budget, mode=args.mode, return_info=False)
@@ -97,9 +98,9 @@ def main():
 
                 if debug_flag:
                     print("\n========== DEBUG BATCH ==========")
-                    _, x_hat, info = model(x, snr=snr, budget=args.budget, mode=args.mode, return_info=True)
+                    _, x_hat , _ = model(x, snr=snr_eval, budget=args.budget, mode=args.mode, return_info=True)
                 else:
-                    _, x_hat = model(x, snr=snr, budget=args.budget, mode=args.mode, return_info=False)
+                    _, x_hat = model(x, snr=snr_eval, budget=args.budget, mode=args.mode, return_info=False)
                 psnr = get_psnr(x_hat * 255.0, x * 255.0, max_val=255.0).mean().item()
                 psnr_sum += psnr
                 n += 1
