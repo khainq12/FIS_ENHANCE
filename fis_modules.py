@@ -49,7 +49,8 @@ def _mf_high(x: torch.Tensor) -> torch.Tensor:
     # peak at 1, zero at 0.5
     return torch.clamp((x - 0.5) / 0.5, 0, 1)
    # return _clamp01((x - 0.5) / 0.5)
-
+def _mf_gauss(x, c, sigma=0.15):
+    return torch.exp(-((x - c)**2) / (2 * sigma**2))
 
 def _mf_med(x: torch.Tensor) -> torch.Tensor:
     # peak at 0.5, zero at 0 and 1
@@ -124,7 +125,7 @@ class FIS_Importance(nn.Module):
         e = _minmax_norm(e, self.eps)
 
         # membership degrees
-        mL, mM, mH = _mf_low(m), _mf_med(m), _mf_high(m)
+        mL, mM, mH = _mf_gauss(m, 0.2), _mf_gauss(m, 0.5), _mf_gauss(m, 0.8)
         vL, vM, vH = _mf_low(v), _mf_med(v), _mf_high(v)
         eL, eM, eH = _mf_low(e), _mf_med(e), _mf_high(e)
 
@@ -151,8 +152,8 @@ class FIS_Importance(nn.Module):
         r6 = _fuzzy_and(mH, vL, eL)
 
         rules = torch.stack([r0, r1, r2, r3, r4, r5, r6], dim=1)  # [B,7,H,W]
-        rules = rules + 0.05
-        rules = rules / rules.sum(dim=1, keepdim=True)
+        rules = rules + 1e-4
+        rules = rules / (rules.sum(dim=1, keepdim=True) + 1e-6)
         # Sugeno defuzzification with fixed consequents
         c = self.c.to(z.device).view(1, -1, 1, 1)  # [1,7,1,1]
         num = (rules * c).sum(dim=1)               # [B,H,W]
@@ -194,8 +195,8 @@ class FIS_PowerAllocation(nn.Module):
         a_high: float = 2.0,
         snr_min_db: float = 0.0,
         snr_max_db: float = 13.0,
-        delta_min: float = 0.2,
-        delta_max: float = 0.6,
+        delta_min: float = 0.5,
+        delta_max: float = 1.0,
         eps: float = 1e-8,
     ):
         super().__init__()
@@ -222,8 +223,8 @@ class FIS_PowerAllocation(nn.Module):
 
         S = s.view(1, 1, 1).expand_as(I)
 
-        iL, iM, iH = _mf_low(I), _mf_med(I), _mf_high(I)
-        sL, sM, sH = _mf_low(S), _mf_med(S), _mf_high(S)
+        iL, iM, iH = _mf_gauss(I, 0.2, 0.12), _mf_gauss(I, 0.5, 0.12),_mf_gauss(I, 0.8, 0.12)
+        sL, sM, sH = _mf_gauss(S, 0.2, 0.1), _mf_gauss(S, 0.5, 0.1), _mf_gauss(S, 0.8, 0.1)
 
         r0 = _fuzzy_and(iH, sL)
         r1 = _fuzzy_and(iH, sM)
@@ -248,13 +249,15 @@ class FIS_PowerAllocation(nn.Module):
         A_shrink = 1.0 + delta * (A_raw - 1.0)
 
         R = float(budget)
-        A = 1.0 + R * (A_shrink - 1.0)
-
+        # A = A_raw
+        A_raw = A_raw.clamp(0.2, 3.0)
         # A = A.clamp(min=self.a_min, max=self.a_high)
         # A = 1.0 + 2.5 * (A - 1.0)
-        A = _mean_normalize(A, eps=self.eps)
-        
-       
+        # A = _mean_normalize(A, eps=self.eps)
+        A = 1 + R * (A_raw - 1)
+        norm = torch.sqrt((A**2).mean(dim=(1,2), keepdim=True)).clamp_min(1e-6)
+        A = A / norm
+        #A = A * torch.sqrt(torch.tensor(R, device=A.device))
         if not return_rules:
             return A
 
@@ -359,7 +362,8 @@ class FIS_SpatialPowerController(nn.Module):
 
             A = 1.0 + R_eff * (A_raw - 1.0)
             A = A.clamp(min=self.a_min, max=self.a_high)
-            A = _mean_normalize(A, eps=self.eps)
+            #A = _mean_normalize(A, eps=self.eps)
+            A = A / torch.sqrt((A**2).mean(dim=(1,2), keepdim=True) + 1e-8)
 
             if not return_info:
                 return A
