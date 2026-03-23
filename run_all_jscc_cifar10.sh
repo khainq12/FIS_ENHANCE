@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "Deep JSCC + FIS (FAIR EVAL - FIXED)"
+echo "Deep JSCC + FIS (BUDGET SWEEP VERSION)"
 echo "========================================"
 
 source /media/data/students/nguyenquangkhai/project1/jscc311/bin/activate
@@ -14,6 +14,7 @@ CHANNELS=("AWGN" "Rayleigh" "Rician")
 MODES=("linear" "importance_only" "snr_only" "full")
 
 SNRS="1,4,7,10,13"
+BUDGETS=("0.25" "0.5" "0.75" "1.0")
 
 ########################################
 for CH in "${CHANNELS[@]}"; do
@@ -32,13 +33,13 @@ python $ROOT/train_baseline.py \
   --image_size 32 \
   --channel $CH \
   --ratio 0.0833333333 \
-  --epochs 100 \
+  --epochs 5 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   --save_dir $DATA/ckpts_baseline_${CH}
 
 ########################################
-# 2. TRAIN ALL FIS
+# 2. TRAIN ALL FIS (1 lần)
 ########################################
 for MODE in "${MODES[@]}"; do
 
@@ -51,7 +52,7 @@ python $ROOT/train_fis_power.py \
   --mode $MODE \
   --budget 1.0 \
   --ratio 0.0833333333 \
-  --epochs 100 \
+  --epochs 5 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   --save_dir $DATA/ckpts_${MODE}_${CH}
@@ -59,9 +60,13 @@ python $ROOT/train_fis_power.py \
 done
 
 ########################################
-# 3. SINGLE FAIR EVALUATION (QUAN TRỌNG)
+# 3. BUDGET SWEEP EVALUATION
 ########################################
-echo ">>> RUN FAIR EVAL ($CH)"
+echo ">>> RUN BUDGET SWEEP ($CH)"
+
+for B in "${BUDGETS[@]}"; do
+
+echo ">>> Budget = $B"
 
 python $ROOT/run_paper_sims.py \
   --dataset cifar10 \
@@ -71,21 +76,39 @@ python $ROOT/run_paper_sims.py \
   --fis_ckpt_root $DATA \
   --modes baseline,linear,importance_only,snr_only,full \
   --snrs $SNRS \
-  --budgets 1.0 \
-  --save_dir $DATA/paper_sims_${CH}_ALL
+  --budgets $B \
+  --save_dir $DATA/paper_sims_${CH}_B${B}
+
+done
 
 ########################################
-# 4. TABLE
+# 4. MERGE JSON → CSV
 ########################################
-python $ROOT/make_tables_from_json.py \
-  --json $DATA/paper_sims_${CH}_ALL/paper_sims_results.json \
-  --budget 1.0 \
-  --methods baseline,linear,importance_only,snr_only,full \
-  --snrs $SNRS \
-  --out $DATA/tables_${CH}_ALL.tex
+echo ">>> MERGING JSON TO CSV ($CH)"
+
+python $ROOT/merge_json.py \
+  --input_dir $DATA \
+  --pattern "paper_sims_${CH}_B*/paper_sims_results.json" \
+  --output $DATA/metrics_cifar10_${CH,,}_budget_sweep.csv
+
+########################################
+# 5. METADATA (NHANH GỌN)
+########################################
+echo ">>> SAVING METADATA ($CH)"
+
+cat <<EOL > $DATA/exp_metadata_cifar10_${CH,,}.json
+{
+  "dataset": "cifar10",
+  "channel": "$CH",
+  "snrs": [$SNRS],
+  "budgets": [0.25,0.5,0.75,1.0],
+  "batch_size": 128,
+  "epochs": 5
+}
+EOL
 
 done
 
 echo "========================================"
-echo "✅ DONE - FAIR COMPARISON GUARANTEED"
+echo "✅ DONE - READY FOR PAPER"
 echo "========================================"
