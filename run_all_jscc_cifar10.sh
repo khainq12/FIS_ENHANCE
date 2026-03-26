@@ -33,7 +33,7 @@ python $ROOT/train_baseline.py \
   --image_size 32 \
   --channel $CH \
   --ratio 0.0833333333 \
-  --epochs 5 \
+  --epochs 100 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   --save_dir $DATA/ckpts_baseline_${CH}
@@ -52,7 +52,7 @@ python $ROOT/train_fis_power.py \
   --mode $MODE \
   --budget 1.0 \
   --ratio 0.0833333333 \
-  --epochs 5 \
+  --epochs 100 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   --save_dir $DATA/ckpts_${MODE}_${CH}
@@ -103,7 +103,7 @@ cat <<EOL > $DATA/exp_metadata_cifar10_${CH,,}.json
   "snrs": [$SNRS],
   "budgets": [0.25,0.5,0.75,1.0],
   "batch_size": 128,
-  "epochs": 5
+  "epochs": 100
 }
 EOL
 

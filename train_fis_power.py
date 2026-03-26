@@ -2,6 +2,7 @@ import argparse
 import os
 import random
 import time
+import json
 
 import torch
 import torch.nn as nn
@@ -13,14 +14,61 @@ from model_baseline import ratio2filtersize
 from utils import get_psnr
 
 
+# ============================================================
+# NEW: compute rule usage for best model
+# ============================================================
+def compute_rule_usage(model, loader, device, snr, budget, mode):
+    model.eval()
+
+    rule1_accum = None
+    rule2_accum = None
+    count = 0
+
+    with torch.no_grad():
+        for x, _ in loader:
+            x = x.to(device)
+
+            _, _, info = model(
+                x,
+                snr=snr,
+                budget=budget,
+                mode=mode,
+                return_info=True
+            )
+
+            if "rule1_strength" in info:
+                r1 = info["rule1_strength"].mean(dim=(0, 2, 3))
+                rule1_accum = r1 if rule1_accum is None else rule1_accum + r1
+
+            if "rule2_strength" in info:
+                r2 = info["rule2_strength"].mean(dim=(0, 2, 3))
+                rule2_accum = r2 if rule2_accum is None else rule2_accum + r2
+
+            count += 1
+
+    result = {}
+
+    if rule1_accum is not None:
+        r1_final = (rule1_accum / count)
+        r1_final = r1_final / r1_final.sum()
+        result["layer1"] = r1_final.cpu().tolist()
+
+    if rule2_accum is not None:
+        r2_final = (rule2_accum / count)
+        r2_final = r2_final / r2_final.sum()
+        result["layer2"] = r2_final.cpu().tolist()
+
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ratio", type=float, default=1/12)
     ap.add_argument("--channel", type=str, default="AWGN", choices=["AWGN", "Rayleigh", "Rician", "rayleigh_legacy"])
-    ap.add_argument("--rician_k", type=float, default=4.0, help="Linear Rician K-factor, used only when --channel Rician")
+    ap.add_argument("--rician_k", type=float, default=4.0)
     ap.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "celebahq", "folder"])
-    ap.add_argument("--data_root", type=str, default="", help="Root folder for CelebA-HQ or a generic folder dataset")
-    ap.add_argument("--image_size", type=int, default=32, help="Input resolution after resize/crop. Use 256 for CelebA-HQ.")
+    ap.add_argument("--data_root", type=str, default="")
+    ap.add_argument("--image_size", type=int, default=32)
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch_size", type=int, default=128)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -31,7 +79,7 @@ def main():
     ap.add_argument("--save_dir", type=str, default="ckpts_fis_power")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--num_workers", type=int, default=2)
-    ap.add_argument("--random_flip", action="store_true", help="Enable random horizontal flip during training for folder datasets")
+    ap.add_argument("--random_flip", action="store_true")
     ap.add_argument("--rayleigh_equalize", action="store_true")
     args = ap.parse_args()
 
@@ -87,33 +135,59 @@ def main():
 
             running += loss.item()
 
+        # =========================
+        # Evaluation
+        # =========================
         model.eval()
         psnr_sum, n = 0.0, 0
+
         with torch.no_grad():
             snr_eval = 0.5 * (args.snr_min + args.snr_max)
             model.set_channel(channel_type=args.channel, snr=snr_eval, rician_k=args.rician_k)
-            for i, (x, _) in enumerate(train_loader):
-                x = x.to(device)
-                debug_flag = (ep == 1 and i == 0)
 
-                if debug_flag:
-                    print("\n========== DEBUG BATCH ==========")
-                    _, x_hat , _ = model(x, snr=snr_eval, budget=args.budget, mode=args.mode, return_info=True)
-                else:
-                    _, x_hat = model(x, snr=snr_eval, budget=args.budget, mode=args.mode, return_info=False)
+            for x, _ in test_loader:
+                x = x.to(device)
+                _, x_hat = model(x, snr=snr_eval, budget=args.budget, mode=args.mode, return_info=False)
+
                 psnr = get_psnr(x_hat * 255.0, x * 255.0, max_val=255.0).mean().item()
                 psnr_sum += psnr
                 n += 1
+
         psnr_avg = psnr_sum / max(n, 1)
 
+        # =========================
+        # Save best + rule usage
+        # =========================
         if psnr_avg > best_psnr:
             best_psnr = psnr_avg
+
             torch.save(model.state_dict(), os.path.join(args.save_dir, "fis_power_best.pth"))
 
-        torch.save(model.state_dict(), os.path.join(args.save_dir, f"fis_power_ep{ep:03d}.pth"))
-        print(f"Epoch {ep:03d} | loss={running/len(train_loader):.6f} | PSNR@SNRmid={psnr_avg:.3f} | time={time.time()-t0:.1f}s")
+            print(">>> New BEST model → computing rule usage...")
 
-    print("Best PSNR@SNRmid:", best_psnr)
+            rule_usage = compute_rule_usage(
+                model,
+                test_loader,
+                device,
+                snr=snr_eval,
+                budget=args.budget,
+                mode=args.mode
+            )
+
+            with open(os.path.join(args.save_dir, "rule_usage_best.json"), "w") as f:
+                json.dump(rule_usage, f, indent=2)
+
+            print("\n=== BEST MODEL RULE USAGE ===")
+            for k, v in rule_usage.items():
+                print(k)
+                for i, val in enumerate(v):
+                    print(f"  Rule {i}: {val:.4f}")
+
+        torch.save(model.state_dict(), os.path.join(args.save_dir, f"fis_power_ep{ep:03d}.pth"))
+
+        print(f"Epoch {ep:03d} | loss={running/len(train_loader):.6f} | PSNR={psnr_avg:.3f} | time={time.time()-t0:.1f}s")
+
+    print("Best PSNR:", best_psnr)
 
 
 if __name__ == "__main__":
