@@ -23,18 +23,18 @@ def parse_list(s: str, cast=float):
 @torch.no_grad()
 def eval_one(
     baseline_model,
-    fis_models,  # dict {mode: model}
-    channel_type: str,
-    snr_db: float,
-    budget: float,
+    fis_models,
+    channel_type,
+    snr_db,
+    budget,
     modes,
     loader,
     device,
-    seed_base: int = 1234,
-    rayleigh_equalize: bool = False,
-    max_batches: int = None,
-    collect_explain: bool = False,
-    rician_k: float = 4.0,
+    seed_base=1234,
+    rayleigh_equalize=False,
+    max_batches=None,
+    collect_explain=False,
+    rician_k=4.0,
 ):
     channel = Channel(channel_type=channel_type, snr_db=snr_db, rician_k=rician_k)
     channel.enable_rayleigh_equalization(rayleigh_equalize)
@@ -49,10 +49,9 @@ def eval_one(
 
         x = x.to(device)
 
-        # 🔥 SAME NOISE FOR ALL METHODS
         torch.manual_seed(seed_base + bidx)
 
-        # ================= BASELINE =================
+        # ===== BASELINE =====
         t0 = time.time()
 
         z = baseline_model.encoder(x)
@@ -61,7 +60,6 @@ def eval_one(
         x_hat = baseline_model.decoder(z_noisy)
 
         elapsed = time.time() - t0
-
         results["baseline"].setdefault("time", 0.0)
         results["baseline"]["time"] += elapsed
 
@@ -72,7 +70,7 @@ def eval_one(
         results["baseline"]["ssim"] += ssim
         results["baseline"]["n"] += 1
 
-        # ================= FIS MODES =================
+        # ===== FIS =====
         for mode in modes:
             if mode == "baseline":
                 continue
@@ -99,13 +97,10 @@ def eval_one(
             z_g = z * gain.unsqueeze(1)
             z_tx = power_normalize(z_g, P=fis_model.P, eps=fis_model.eps)
 
-            # 🔥 SAME CHANNEL REALIZATION
             z_noisy = channel(z_tx)
-
             x_hat = fis_model.decoder(z_noisy)
 
             elapsed = time.time() - t0
-
             results[mode].setdefault("time", 0.0)
             results[mode]["time"] += elapsed
 
@@ -115,16 +110,6 @@ def eval_one(
             results[mode]["psnr"] += psnr
             results[mode]["ssim"] += ssim
             results[mode]["n"] += 1
-
-            if collect_explain and info is not None:
-                if "rule1_id" in info:
-                    rule_counts[mode]["layer1"].update(
-                        info["rule1_id"].detach().cpu().view(-1).tolist()
-                    )
-                if "rule2_id" in info:
-                    rule_counts[mode]["layer2"].update(
-                        info["rule2_id"].detach().cpu().view(-1).tolist()
-                    )
 
     for mode in modes:
         n = max(results[mode]["n"], 1)
@@ -140,7 +125,11 @@ def main():
     ap.add_argument("--baseline_ckpt", type=str, required=True)
     ap.add_argument("--fis_ckpt_root", type=str, required=True)
 
-    ap.add_argument("--ratio", type=float, default=1 / 12)
+    # 🔥 NEW
+    ap.add_argument("--eq_tag", type=str, default="")
+    ap.add_argument("--rayleigh_equalize", action="store_true")
+
+    ap.add_argument("--ratio", type=float, default=1 / 6)
     ap.add_argument("--channel", type=str, default="AWGN",
                     choices=["AWGN", "Rayleigh", "Rician", "rayleigh_legacy"])
     ap.add_argument("--rician_k", type=float, default=4.0)
@@ -161,9 +150,6 @@ def main():
 
     ap.add_argument("--save_dir", type=str, default="paper_sims_out")
 
-    ap.add_argument("--max_batches", type=int, default=0)
-    ap.add_argument("--seed", type=int, default=1234)
-
     args = ap.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -171,8 +157,7 @@ def main():
 
     # ===== DATA =====
     testset = create_dataset(
-        args.dataset,
-        split="test",
+        args.dataset, split="test",
         data_root=args.data_root,
         image_size=args.image_size,
         random_flip=False,
@@ -193,7 +178,7 @@ def main():
     baseline_model.load_state_dict(ckpt, strict=True)
     baseline_model.eval()
 
-    # ===== LOAD ALL FIS =====
+    # ===== LOAD FIS =====
     modes = [m.strip().lower() for m in args.modes.split(",") if m.strip()]
 
     fis_models = {}
@@ -201,11 +186,19 @@ def main():
         if mode == "baseline":
             continue
 
+        # 🔥 FIX PATH
+        if args.eq_tag != "":
+            ckpt_dir = f"ckpts_{args.eq_tag}_{mode}_{args.channel}"
+        else:
+            ckpt_dir = f"ckpts_{mode}_{args.channel}"
+
         ckpt_path = os.path.join(
             args.fis_ckpt_root,
-            f"ckpts_{mode}_{args.channel}",
+            ckpt_dir,
             "fis_power_best.pth"
         )
+
+        print("Loading:", ckpt_path)
 
         model = DeepJSCC_FIS(
             c=c,
@@ -238,7 +231,7 @@ def main():
                 modes=modes,
                 loader=loader,
                 device=device,
-                seed_base=args.seed,
+                rayleigh_equalize=args.rayleigh_equalize,
             )
 
             out_R[str(snr)] = res

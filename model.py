@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-
 from channel import Channel
 from model_baseline import ratio2filtersize, _Encoder, _Decoder
 from fis_modules import FIS_SpatialPowerController
@@ -20,29 +19,46 @@ class DeepJSCC_FIS(nn.Module):
     """
     Deep-JSCC backbone (same encoder/decoder as baseline) + FIS spatial power controller.
 
-    Outputs:
-      - z_tx: gated + power-normalized latent sent over the channel
-      - x_hat: reconstructed image
-      - optional info dict: importance map, gain map, rule activations
+    FIX-1 (model.py): gain = A (amplitude map), NOT sqrt(A).
+        The FIS designs A as an *amplitude* scaling map (not a power map).
+        Using sqrt(A) halved the effective gain range, making FIS behave
+        much more weakly than its rule consequents intended.
+        After this fix, A=1.35 gives a 35% amplitude boost as designed.
+
+    FIX-2 (model.py): a_high default aligned to 1.35 (matches fis_modules defaults).
+        The original model.py used a_high=2.0 while fis_modules.py defaulted to 1.35,
+        creating an inconsistency. We choose 1.35 as the canonical value because it is
+        what the signed-consequent FIS was calibrated for. If you want a wider range,
+        change it consistently in both files.
+
+    FIX-3 (model.py): snr_max_db default changed from 13.0 to 20.0 to match
+        the training script default snr_max=20.0. Without this, the FIS SNR
+        normalizer saturated at u=1 for SNRs above 13 dB during training,
+        causing the power-allocation layer to lose SNR sensitivity in the
+        upper training range.
     """
+
     def __init__(
         self,
-        ratio: float = 1 / 12,
+        ratio: float = 1 / 6,
         c: int = None,
         input_size=(3, 32, 32),
         P: float = 1.0,
         channel_type: str = "awgn",
         rician_k: float = 4.0,
         # controller params
-        a_min: float = 0.70,
+        # FIX-2: a_high=1.35 (was 2.0) — consistent with fis_modules defaults
+        a_min: float = 0.75,
         a_med: float = 1.00,
-        a_high: float = 2.0,
-        alpha_linear: float = 0.8,
+        a_high: float = 1.35,
+        alpha_linear: float = 1.10,
+        # FIX-3: snr_max_db=20.0 (was 13.0) — must match training snr_max
         snr_min_db: float = 0.0,
-        snr_max_db: float = 13.0,
+        snr_max_db: float = 20.0,
         eps: float = 1e-8,
     ):
         super().__init__()
+
         if c is None:
             if len(input_size) != 3:
                 raise ValueError("input_size must be a (C,H,W) tuple")
@@ -53,8 +69,8 @@ class DeepJSCC_FIS(nn.Module):
         self.encoder = _Encoder(c=self.c, P=P, apply_norm=False)
         self.decoder = _Decoder(self.c)
         self.channel = Channel(channel_type=channel_type, P=P, rician_k=rician_k)
-
         self.P = float(P)
+
         self.controller = FIS_SpatialPowerController(
             a_min=a_min,
             a_med=a_med,
@@ -82,24 +98,25 @@ class DeepJSCC_FIS(nn.Module):
         mode: str = "full",
         return_info: bool = False,
     ):
-        # Encoder outputs pre-normalization latent; we apply spatial gating then power-normalize once
         snr = snr if snr is not None else self.controller.snr_min_db
-        z = self.encoder(x)  # [B,C,H',W']
+
+        z = self.encoder(x)  # [B, C, H', W']
 
         if return_info:
             A, info = self.controller(z, snr_db=snr, budget=budget, mode=mode, return_info=True)
         else:
             A = self.controller(z, snr_db=snr, budget=budget, mode=mode, return_info=False)
 
-        # Spatial gating uses sqrt(A) as amplitude gain (A is a power map)
-        gain = torch.sqrt(A.clamp_min(self.eps))
+        # FIX-1: A is an amplitude map — apply directly, no sqrt.
+        # The FIS output A is already in amplitude space (gain on z values).
+        # Using sqrt(A) previously was mathematically equivalent to treating A as
+        # a power map, which halved the effective redistribution strength.
+        gain = A.clamp_min(self.eps)          # was: torch.sqrt(A.clamp_min(self.eps))
         z_g = z * gain.unsqueeze(1)
 
-        # Re-normalize after gating to preserve the same average transmit power as baseline
+        # Re-normalize after gating to preserve the same average transmit power as baseline.
         z_tx = power_normalize(z_g, P=self.P, eps=self.eps)
 
-
-        # Channel + decoder
         self.channel.change_snr(snr)
         y = self.channel(z_tx)
         x_hat = self.decoder(y)

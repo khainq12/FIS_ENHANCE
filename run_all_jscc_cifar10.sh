@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "Deep JSCC + FIS (BUDGET SWEEP VERSION)"
+echo "Deep JSCC + FIS (BUDGET SWEEP + EQ COMPARE)"
 echo "========================================"
 
 source /media/data/students/nguyenquangkhai/project1/jscc311/bin/activate
@@ -17,14 +17,26 @@ SNRS="1,4,7,10,13"
 BUDGETS=("0.25" "0.5" "0.75" "1.0")
 
 ########################################
+for EQ in "noeq" "eq"; do
+
+echo "========================================"
+echo "SETTING: $EQ"
+echo "========================================"
+
+RAY_FLAG=""
+if [[ "$EQ" == "eq" ]]; then
+  RAY_FLAG="--rayleigh_equalize"
+fi
+
+########################################
 for CH in "${CHANNELS[@]}"; do
 
 echo "========================================"
-echo "CHANNEL: $CH"
+echo "CHANNEL: $CH ($EQ)"
 echo "========================================"
 
 ########################################
-# 1. TRAIN BASELINE (1 lần)
+# 1. TRAIN BASELINE
 ########################################
 echo ">>> TRAIN BASELINE ($CH)"
 
@@ -32,14 +44,15 @@ python $ROOT/train_baseline.py \
   --dataset cifar10 \
   --image_size 32 \
   --channel $CH \
-  --ratio 0.0833333333 \
-  --epochs 100 \
+  --ratio 0.17 \
+  --epochs 1 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
-  --save_dir $DATA/ckpts_baseline_${CH}
+  ${RAY_FLAG:+$RAY_FLAG} \
+  --save_dir $DATA/ckpts_${EQ}_baseline_${CH}
 
 ########################################
-# 2. TRAIN ALL FIS (1 lần)
+# 2. TRAIN FIS
 ########################################
 for MODE in "${MODES[@]}"; do
 
@@ -51,16 +64,17 @@ python $ROOT/train_fis_power.py \
   --channel $CH \
   --mode $MODE \
   --budget 1.0 \
-  --ratio 0.0833333333 \
-  --epochs 100 \
+  --ratio 0.17 \
+  --epochs 1 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
-  --save_dir $DATA/ckpts_${MODE}_${CH}
+  ${RAY_FLAG:+$RAY_FLAG} \
+  --save_dir $DATA/ckpts_${EQ}_${MODE}_${CH}
 
 done
 
 ########################################
-# 3. BUDGET SWEEP EVALUATION
+# 3. BUDGET SWEEP
 ########################################
 echo ">>> RUN BUDGET SWEEP ($CH)"
 
@@ -72,43 +86,48 @@ python $ROOT/run_paper_sims.py \
   --dataset cifar10 \
   --image_size 32 \
   --channel $CH \
-  --baseline_ckpt $DATA/ckpts_baseline_${CH}/baseline_best.pth \
+  --baseline_ckpt $DATA/ckpts_${EQ}_baseline_${CH}/baseline_best.pth \
   --fis_ckpt_root $DATA \
+  --eq_tag $EQ \
+  ${RAY_FLAG:+$RAY_FLAG} \
   --modes baseline,linear,importance_only,snr_only,full \
   --snrs $SNRS \
   --budgets $B \
-  --save_dir $DATA/paper_sims_${CH}_B${B}
+  --save_dir $DATA/paper_sims_${EQ}_${CH}_B${B}
 
 done
 
 ########################################
-# 4. MERGE JSON → CSV
+# 4. MERGE
 ########################################
 echo ">>> MERGING JSON TO CSV ($CH)"
 
 python $ROOT/merge_json.py \
   --input_dir $DATA \
-  --pattern "paper_sims_${CH}_B*/paper_sims_results.json" \
-  --output $DATA/metrics_cifar10_${CH,,}_budget_sweep.csv
+  --pattern "paper_sims_${EQ}_${CH}_B*/paper_sims_results.json" \
+  --output $DATA/metrics_cifar10_${EQ}_${CH,,}_budget_sweep.csv
 
 ########################################
-# 5. METADATA (NHANH GỌN)
+# 5. METADATA
 ########################################
 echo ">>> SAVING METADATA ($CH)"
 
-cat <<EOL > $DATA/exp_metadata_cifar10_${CH,,}.json
+cat <<EOL > $DATA/exp_metadata_cifar10_${EQ}_${CH,,}.json
 {
   "dataset": "cifar10",
   "channel": "$CH",
+  "setting": "$EQ",
   "snrs": [$SNRS],
   "budgets": [0.25,0.5,0.75,1.0],
   "batch_size": 128,
-  "epochs": 100
+  "epochs": 1,
+  "rayleigh_equalize": $([[ "$EQ" == "eq" ]] && echo true || echo false)
 }
 EOL
 
 done
+done
 
 echo "========================================"
-echo "✅ DONE - READY FOR PAPER"
+echo "✅ DONE - READY FOR EQ vs NOEQ ANALYSIS"
 echo "========================================"

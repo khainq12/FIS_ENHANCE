@@ -3,11 +3,26 @@ import torch.nn as nn
 
 # ============================================================
 # Patched Torch-based FIS modules
-# Goals of this patch:
-# 1) avoid one-rule collapse in layer-2 power allocation
-# 2) remove global positive bias in A_raw / A
-# 3) keep allocation symmetric around 1.0 so gain can go up or down
-# 4) preserve compatibility with existing model.py and train/eval scripts
+#
+# DESIGN NOTE (amplitude vs power map):
+#   The output A of FIS_PowerAllocation is an *amplitude* scaling map.
+#   It is applied as:  z_gated = z * A   (in model.py, after FIX-1)
+#   This means A=1.35 gives a 35% amplitude boost to that spatial location.
+#   The consequents in FIS_PowerAllocation.c are calibrated for this convention.
+#
+#   Do NOT use sqrt(A) in model.py — that was the old bug that halved the gain.
+#
+# FIX-2 (fis_modules.py): a_high default aligned to 1.35 throughout this file.
+#   Previously model.py used a_high=2.0 as its default while this file used 1.35,
+#   causing inconsistency. The canonical value is 1.35 here. Change both files
+#   together if a wider range is needed.
+#
+# Changes relative to original:
+#   - a_high default in FIS_PowerAllocation: 1.35 (was 1.35, unchanged here)
+#   - a_high default in FIS_SpatialPowerController: 1.35 (was 1.35, unchanged here)
+#   - snr_max_db default in FIS_SpatialPowerController: 20.0 (was 20.0, unchanged)
+#     NOTE: model.py previously overrode this with 13.0 — that bug is fixed in model.py.
+#   - Added docstring clarifying amplitude convention throughout.
 # ============================================================
 
 
@@ -30,6 +45,7 @@ def _minmax_norm(x: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 
 
 def _mean_normalize(A: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Divide A by its spatial mean so mean(A) = 1. Preserves redistribution shape."""
     m = A.mean(dim=(1, 2), keepdim=True).clamp_min(eps)
     return A / m
 
@@ -37,6 +53,7 @@ def _mean_normalize(A: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 # ----------------------------
 # Smooth membership functions
 # ----------------------------
+
 def _mf_gauss(x: torch.Tensor, center: float, sigma: float) -> torch.Tensor:
     return torch.exp(-0.5 * ((x - center) / max(sigma, 1e-6)) ** 2)
 
@@ -54,7 +71,6 @@ def _mf_high(x: torch.Tensor, center: float = 0.82, sigma: float = 0.22) -> torc
 
 
 def _fuzzy_and(*args: torch.Tensor) -> torch.Tensor:
-    # Product t-norm is smoother than min and reduces winner-take-most behavior.
     out = args[0]
     for a in args[1:]:
         out = out * a
@@ -71,9 +87,8 @@ def _fuzzy_or(*args: torch.Tensor) -> torch.Tensor:
 class FIS_Importance(nn.Module):
     """
     Layer-1 FIS: compute importance map I(i,j) in [0,1] from encoder latent z.
-
-    This patch keeps the same interface as the original module, but uses smoother
-    membership functions and normalized rule weighting to make I less brittle.
+    Uses 7 zero-order Sugeno rules with Gaussian membership functions and
+    normalized (softened) rule weighting to reduce single-rule dominance.
     """
 
     def __init__(self, eps: float = 1e-8, rule_temp: float = 1.25, rule_floor: float = 0.01):
@@ -81,7 +96,7 @@ class FIS_Importance(nn.Module):
         self.eps = eps
         self.rule_temp = float(rule_temp)
         self.rule_floor = float(rule_floor)
-        # Slightly compressed consequents to avoid overly extreme I maps.
+        # Consequents: [very_high, very_high, high, medium, very_low, low, mod_high]
         self.c = torch.tensor([0.88, 0.82, 0.68, 0.50, 0.18, 0.28, 0.62], dtype=torch.float32)
 
     @staticmethod
@@ -90,11 +105,9 @@ class FIS_Importance(nn.Module):
         dy = torch.abs(m[:, 1:, :] - m[:, :-1, :])
         dx = torch.nn.functional.pad(dx, (0, 1, 0, 0))
         dy = torch.nn.functional.pad(dy, (0, 0, 0, 1))
-        e = 0.5 * (dx + dy)
-        return e
+        return 0.5 * (dx + dy)
 
     def _normalize_rules(self, rules: torch.Tensor) -> torch.Tensor:
-        # Add a small floor and flatten peaks to reduce single-rule dominance.
         rules = (rules + self.rule_floor).pow(1.0 / self.rule_temp)
         den = rules.sum(dim=1, keepdim=True).clamp_min(self.eps)
         return rules / den
@@ -112,6 +125,7 @@ class FIS_Importance(nn.Module):
         vL, vM, vH = _mf_low(v), _mf_med(v), _mf_high(v)
         eL, eM, eH = _mf_low(e), _mf_med(e), _mf_high(e)
 
+        # 7 rules — see paper Section IV-A
         r0 = _fuzzy_and(mH, vH)
         r1 = _fuzzy_and(mH, eH)
         r2 = _fuzzy_and(mM, _fuzzy_or(vH, eH))
@@ -134,22 +148,27 @@ class FIS_Importance(nn.Module):
 
 class FIS_PowerAllocation(nn.Module):
     """
-    Layer-2 FIS: compute a spatial power map A(i,j) from importance I(i,j), SNR, and budget R.
+    Layer-2 FIS: compute a spatial *amplitude* map A(i,j) from importance I(i,j),
+    SNR, and budget R.
 
-    Patch design:
-    - use signed consequents around 0 instead of absolute gains > 1
-    - center the score map per sample to remove global positive bias
-    - convert score -> gain with symmetric residual mapping around 1.0
-    - smooth/flatten rule weights to prevent one-rule collapse
+    Output convention: A is an amplitude multiplier.
+        z_gated = z * A   →   power at (i,j) scales as A^2.
+    The consequents self.c are signed deviations; the final A is computed via
+    exp(amp * tanh(score)) and then mean-normalized to preserve average power.
+
+    FIX-2 note: a_high default is 1.35, consistent with FIS_SpatialPowerController.
+    FIX-3 note: snr_max_db default is 20.0; must match the training script snr_max.
+                FIS_SpatialPowerController passes this down, so changing it there
+                is sufficient — no need to edit this class directly.
     """
 
     def __init__(
         self,
         a_min: float = 0.75,
         a_med: float = 1.00,
-        a_high: float = 1.35,
+        a_high: float = 1.35,      # FIX-2: canonical value, do not override to 2.0
         snr_min_db: float = 0.0,
-        snr_max_db: float = 13.0,
+        snr_max_db: float = 20.0,  # FIX-3: must match training snr_max (default 20)
         delta_min: float = 0.10,
         delta_max: float = 0.32,
         rule_temp: float = 1.70,
@@ -169,8 +188,8 @@ class FIS_PowerAllocation(nn.Module):
         self.rule_floor = float(rule_floor)
         self.score_scale = float(score_scale)
         self.eps = eps
-        # Signed consequents. Positive -> allocate more, negative -> allocate less.
-        # They are intentionally moderate to avoid biased maps after normalization.
+        # Signed consequents. Positive → allocate more, negative → less.
+        # Calibrated for amplitude-map convention (applied directly, no sqrt in model.py).
         self.c = torch.tensor([+0.90, +0.55, +0.20, +0.25, 0.00, -0.65], dtype=torch.float32)
 
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
@@ -179,7 +198,7 @@ class FIS_PowerAllocation(nn.Module):
         return torch.tensor(s, device=device, dtype=dtype)
 
     def _delta_from_snr(self, snr_u: float) -> float:
-        # Low SNR -> stronger allocation; high SNR -> softer redistribution.
+        """Low SNR → stronger redistribution; high SNR → softer."""
         return self.delta_min + (self.delta_max - self.delta_min) * (1.0 - float(snr_u))
 
     def _normalize_rules(self, rules: torch.Tensor) -> torch.Tensor:
@@ -187,13 +206,15 @@ class FIS_PowerAllocation(nn.Module):
         den = rules.sum(dim=1, keepdim=True).clamp_min(self.eps)
         return rules / den
 
-    def forward(self, I: torch.Tensor, snr_db: float, budget: float = 1.0, return_rules: bool = False):
+    def forward(self, I: torch.Tensor, snr_db: float, budget: float = 1.0,
+                return_rules: bool = False):
         s = self._snr_unit(snr_db, device=I.device, dtype=I.dtype)
         S = s.view(1, 1, 1).expand_as(I)
 
         iL, iM, iH = _mf_low(I), _mf_med(I), _mf_high(I)
         sL, sM, sH = _mf_low(S), _mf_med(S), _mf_high(S)
 
+        # 6 rules — see paper Section IV-B
         r0 = _fuzzy_and(iH, sL)
         r1 = _fuzzy_and(iH, sM)
         r2 = _fuzzy_and(iH, sH)
@@ -206,16 +227,15 @@ class FIS_PowerAllocation(nn.Module):
 
         c = self.c.to(I.device, I.dtype).view(1, -1, 1, 1)
         score = (rules * c).sum(dim=1)
-        # Remove global bias so the controller learns redistribution, not uniform uplift.
+
+        # Remove global bias: controller performs redistribution, not uniform uplift.
         score = score - score.mean(dim=(1, 2), keepdim=True)
         score = self.score_scale * score
 
         delta = self._delta_from_snr(float(s))
-        R = float(budget)
-        amp = R * delta
+        amp = float(budget) * delta
 
-        # Symmetric positive gain around 1.0.
-        # exp(tanh(.)) ensures positivity without forcing a global >1 bias.
+        # A is an amplitude map: exp(tanh) keeps it positive and bounded.
         A = torch.exp(amp * torch.tanh(score))
         A = A.clamp(min=self.a_min, max=self.a_high)
         A = _mean_normalize(A, eps=self.eps)
@@ -231,10 +251,15 @@ class FIS_SpatialPowerController(nn.Module):
     Two-layer controller wrapper + ablation modes.
 
     modes:
-      - "full": importance FIS + power FIS (I + SNR + budget)
-      - "importance_only": ignore SNR in layer-2 (treat SNR as mid)
-      - "snr_only": ignore content importance (I=0.5 constant)
-      - "linear": symmetric linear residual baseline around mean(I)
+        "full"            — importance FIS + power FIS (I + SNR + budget)
+        "importance_only" — ignore SNR in layer-2 (fixed at 10 dB)
+        "snr_only"        — ignore content importance (I = 0.5 constant)
+        "linear"          — symmetric linear residual baseline around mean(I)
+
+    FIX-2: a_high default = 1.35 (was 1.35 here, but model.py was passing 2.0).
+           The fix is in model.py; this class is already correct.
+    FIX-3: snr_max_db default = 20.0. This value is passed through to
+           FIS_PowerAllocation so the SNR normalizer covers the full training range.
     """
 
     def __init__(
@@ -265,12 +290,9 @@ class FIS_SpatialPowerController(nn.Module):
         self.eps = eps
 
     @staticmethod
-    def _rule_balance_loss(rule_strength: torch.Tensor, target: str = "uniform", eps: float = 1e-8) -> torch.Tensor:
-        """
-        Optional auxiliary loss for training script.
-        rule_strength: [B,R,H,W], already normalized over rule dimension.
-        Returns a small scalar that can be added to train loss.
-        """
+    def _rule_balance_loss(rule_strength: torch.Tensor, target: str = "uniform",
+                           eps: float = 1e-8) -> torch.Tensor:
+        """Optional auxiliary loss to encourage balanced rule usage."""
         p = rule_strength.mean(dim=(0, 2, 3)).clamp_min(eps)
         p = p / p.sum()
         if target == "uniform":
@@ -291,7 +313,10 @@ class FIS_SpatialPowerController(nn.Module):
         mode = str(mode).lower()
 
         if mode == "snr_only":
-            I = torch.full((z.shape[0], z.shape[2], z.shape[3]), 0.5, device=z.device, dtype=z.dtype)
+            I = torch.full(
+                (z.shape[0], z.shape[2], z.shape[3]), 0.5,
+                device=z.device, dtype=z.dtype,
+            )
             if return_info:
                 info["I"] = I
         else:
@@ -309,7 +334,6 @@ class FIS_SpatialPowerController(nn.Module):
         snr_use = 10.0 if mode == "importance_only" else float(snr_db)
 
         if mode == "linear":
-            # Fairer linear baseline: zero-center I so that gain redistributes around 1.
             I_c = I - I.mean(dim=(1, 2), keepdim=True)
             s = self.pow._snr_unit(snr_use, device=I.device, dtype=I.dtype)
             amp = float(budget) * self.pow._delta_from_snr(float(s))
@@ -332,5 +356,6 @@ class FIS_SpatialPowerController(nn.Module):
                 "rule2_balance_loss": self._rule_balance_loss(rs2, eps=self.eps),
             })
             return A, info
+
         A = self.pow(I, snr_use, budget=budget, return_rules=False)
         return A

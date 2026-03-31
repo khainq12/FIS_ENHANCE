@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "Deep JSCC + FIS (CelebA 256 - CLEAN)"
+echo "Deep JSCC + FIS (BUDGET SWEEP VERSION)"
 echo "========================================"
 
 source /media/data/students/nguyenquangkhai/project1/jscc311/bin/activate
@@ -10,13 +10,14 @@ source /media/data/students/nguyenquangkhai/project1/jscc311/bin/activate
 ROOT=/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch
 DATA=/media/data/students/nguyenquangkhai
 
-# 📁 Dataset CelebA 256
+# 📁 CelebA-HQ path
 CELEBA=/media/data/students/nguyenquangkhai/celeba256/face
 
 CHANNELS=("AWGN" "Rayleigh" "Rician")
 MODES=("linear" "importance_only" "snr_only" "full")
 
-SNRS="1.0,4.0,7.0,10.0,13.0"
+SNRS="1,4,7,10,13"
+BUDGETS=("0.25" "0.5" "0.75" "1.0")
 
 ########################################
 for CH in "${CHANNELS[@]}"; do
@@ -26,7 +27,7 @@ echo "CHANNEL: $CH"
 echo "========================================"
 
 ########################################
-# 1. TRAIN BASELINE
+# 1. TRAIN BASELINE (1 lần)
 ########################################
 echo ">>> TRAIN BASELINE ($CH)"
 
@@ -35,24 +36,19 @@ python $ROOT/train_baseline.py \
   --data_root $CELEBA \
   --image_size 256 \
   --channel $CH \
-  --ratio 0.0833333333 \
+  --ratio 0.17 \
   --epochs 100 \
-  --batch_size 32 \
+  --batch_size 128 \
   --snr_min 0 --snr_max 20 \
-  --save_dir $DATA/ckpts_baseline_${CH}_celeba
+  --save_dir $DATA/ckpts_baseline_${CH}
 
 ########################################
-# 2. TRAIN + SIM từng MODE
+# 2. TRAIN ALL FIS (1 lần)
 ########################################
 for MODE in "${MODES[@]}"; do
 
-echo "----------------------------------------"
-echo ">>> MODE: $MODE ($CH)"
-echo "----------------------------------------"
+echo ">>> TRAIN FIS: $MODE ($CH)"
 
-########################################
-# TRAIN
-########################################
 python $ROOT/train_fis_power.py \
   --dataset celebahq \
   --data_root $CELEBA \
@@ -60,86 +56,66 @@ python $ROOT/train_fis_power.py \
   --channel $CH \
   --mode $MODE \
   --budget 1.0 \
-  --ratio 0.0833333333 \
+  --ratio 0.17 \
   --epochs 100 \
-  --batch_size 32 \
+  --batch_size 128 \
   --snr_min 0 --snr_max 20 \
-  --save_dir $DATA/ckpts_${MODE}_${CH}_celeba
+  --save_dir $DATA/ckpts_${MODE}_${CH}
+
+done
 
 ########################################
-# SIMULATION
+# 3. BUDGET SWEEP EVALUATION
 ########################################
+echo ">>> RUN BUDGET SWEEP ($CH)"
+
+for B in "${BUDGETS[@]}"; do
+
+echo ">>> Budget = $B"
+
 python $ROOT/run_paper_sims.py \
   --dataset celebahq \
   --data_root $CELEBA \
   --image_size 256 \
   --channel $CH \
-  --baseline_ckpt $DATA/ckpts_baseline_${CH}_celeba/baseline_best.pth \
-  --fis_ckpt $DATA/ckpts_${MODE}_${CH}_celeba/fis_power_best.pth \
-  --modes baseline,$MODE \
+  --baseline_ckpt $DATA/ckpts_baseline_${CH}/baseline_best.pth \
+  --fis_ckpt_root $DATA \
+  --modes baseline,linear,importance_only,snr_only,full \
   --snrs $SNRS \
-  --budgets 1.0 \
-  --batch_size 16 \
-  --save_dir $DATA/paper_sims_${CH}_${MODE}_celeba
-
-########################################
-# CHECK FILE
-########################################
-JSON_FILE=$DATA/paper_sims_${CH}_${MODE}_celeba/paper_sims_results.json
-
-if [ ! -f "$JSON_FILE" ]; then
-  echo "❌ Missing JSON: $JSON_FILE"
-  exit 1
-fi
-
-########################################
-# TABLE
-########################################
-python $ROOT/make_tables_from_json.py \
-  --json $JSON_FILE \
-  --budget 1.0 \
-  --methods baseline,$MODE \
-  --snrs $SNRS \
-  --out $DATA/tables_${CH}_${MODE}_celeba.tex
+  --budgets $B \
+  --save_dir $DATA/paper_sims_${CH}_B${B}
 
 done
 
 ########################################
-# 3. MERGE ALL MODES
+# 4. MERGE JSON → CSV
 ########################################
-echo "========================================"
-echo ">>> FINAL MERGE ($CH)"
-echo "========================================"
-
-OUT_JSON=$DATA/paper_sims_${CH}_ALL_celeba.json
+echo ">>> MERGING JSON TO CSV ($CH)"
 
 python $ROOT/merge_json.py \
-  $OUT_JSON \
-  $DATA/paper_sims_${CH}_linear_celeba/paper_sims_results.json \
-  $DATA/paper_sims_${CH}_importance_only_celeba/paper_sims_results.json \
-  $DATA/paper_sims_${CH}_snr_only_celeba/paper_sims_results.json \
-  $DATA/paper_sims_${CH}_full_celeba/paper_sims_results.json
+  --input_dir $DATA \
+  --pattern "paper_sims_${CH}_B*/paper_sims_results.json" \
+  --output $DATA/metrics_celeba_${CH,,}_budget_sweep.csv
 
 ########################################
-# CHECK MERGED FILE
+# 5. METADATA (NHANH GỌN)
 ########################################
-if [ ! -f "$OUT_JSON" ]; then
-  echo "❌ Merge failed!"
-  exit 1
-fi
+echo ">>> SAVING METADATA ($CH)"
 
-########################################
-# FINAL TABLE
-########################################
-python $ROOT/make_tables_from_json.py \
-  --json $OUT_JSON \
-  --budget 1.0 \
-  --methods baseline,linear,importance_only,snr_only,full \
-  --snrs $SNRS \
-  --out $DATA/tables_${CH}_ALL_celeba.tex
+cat <<EOL > $DATA/exp_metadata_celeba_${CH,,}.json
+{
+  "dataset": "celebahq",
+  "data_path": "$CELEBA",
+  "channel": "$CH",
+  "snrs": [$SNRS],
+  "budgets": [0.25,0.5,0.75,1.0],
+  "batch_size": 128,
+  "epochs": 100
+}
+EOL
 
 done
 
 echo "========================================"
-echo "✅ ALL DONE (CELEBA 256)"
+echo "✅ DONE - READY FOR PAPER"
 echo "========================================"
