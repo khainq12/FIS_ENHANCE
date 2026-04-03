@@ -14,12 +14,6 @@ from model import DeepJSCC_FIS, power_normalize
 from utils import get_psnr, simple_ssim
 
 
-def parse_list(s: str, cast=float):
-    if s is None or s == "":
-        return []
-    return [cast(x.strip()) for x in s.split(",") if x.strip() != ""]
-
-
 @torch.no_grad()
 def eval_one(
     baseline_model,
@@ -41,19 +35,16 @@ def eval_one(
     channel.change_snr(snr_db)
 
     results = {m: {"psnr": 0.0, "ssim": 0.0, "n": 0} for m in modes}
-    rule_counts = {m: {"layer1": Counter(), "layer2": Counter()} for m in modes}
 
     for bidx, (x, _) in enumerate(loader):
         if max_batches is not None and bidx >= max_batches:
             break
 
         x = x.to(device)
-
         torch.manual_seed(seed_base + bidx)
 
         # ===== BASELINE =====
         t0 = time.time()
-
         z = baseline_model.encoder(x)
         z = power_normalize(z, P=1.0, eps=1e-8)
         z_noisy = channel(z)
@@ -76,9 +67,7 @@ def eval_one(
                 continue
 
             fis_model = fis_models[mode]
-
             t0 = time.time()
-
             z = fis_model.encoder(x)
 
             if collect_explain:
@@ -91,12 +80,12 @@ def eval_one(
                     z, snr_db=snr_db, budget=budget,
                     mode=mode, return_info=False
                 )
-                info = None
 
-            gain = torch.sqrt(A.clamp_min(fis_model.eps))
-            z_g = z * gain.unsqueeze(1)
+            # ===============================
+            # ✅ FIX QUAN TRỌNG: KHÔNG sqrt(A)
+            # ===============================
+            z_g = z * A.unsqueeze(1)
             z_tx = power_normalize(z_g, P=fis_model.P, eps=fis_model.eps)
-
             z_noisy = channel(z_tx)
             x_hat = fis_model.decoder(z_noisy)
 
@@ -117,37 +106,34 @@ def eval_one(
         results[mode]["ssim"] /= n
         results[mode]["time"] /= n
 
-    return results, rule_counts
+    return results
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--baseline_ckpt", type=str, required=True)
     ap.add_argument("--fis_ckpt_root", type=str, required=True)
-
-    # 🔥 NEW
     ap.add_argument("--eq_tag", type=str, default="")
     ap.add_argument("--rayleigh_equalize", action="store_true")
-
-    ap.add_argument("--ratio", type=float, default=1 / 6)
+    ap.add_argument("--ratio", type=float, default=1/6)
     ap.add_argument("--channel", type=str, default="AWGN",
                     choices=["AWGN", "Rayleigh", "Rician", "rayleigh_legacy"])
     ap.add_argument("--rician_k", type=float, default=4.0)
 
-    ap.add_argument("--snrs", type=str, default="1,4,7,10,13")
+    # Sửa snrs/budgets
+    ap.add_argument("--snrs", type=float, nargs='+', default=[1,4,7,10,13],
+                    help="List of SNRs in dB, e.g. --snrs -10 -5 0 5 10")
     ap.add_argument("--budget", type=float, default=1.0)
-    ap.add_argument("--budgets", type=str, default="")
+    ap.add_argument("--budgets", type=float, nargs='+', default=None,
+                    help="Optional list of budgets, e.g. --budgets 0.5 1.0 2.0")
 
     ap.add_argument("--modes", type=str,
                     default="baseline,linear,importance_only,snr_only,full")
-
     ap.add_argument("--dataset", type=str, default="cifar10")
     ap.add_argument("--data_root", type=str, default="")
     ap.add_argument("--image_size", type=int, default=32)
-
     ap.add_argument("--batch_size", type=int, default=128)
     ap.add_argument("--num_workers", type=int, default=2)
-
     ap.add_argument("--save_dir", type=str, default="paper_sims_out")
 
     args = ap.parse_args()
@@ -173,56 +159,34 @@ def main():
     baseline_model = DeepJSCC_Baseline(
         c=c, channel_type=args.channel, rician_k=args.rician_k
     ).to(device)
-
     ckpt = torch.load(args.baseline_ckpt, map_location=device)
     baseline_model.load_state_dict(ckpt, strict=True)
     baseline_model.eval()
 
     # ===== LOAD FIS =====
     modes = [m.strip().lower() for m in args.modes.split(",") if m.strip()]
-
     fis_models = {}
     for mode in modes:
         if mode == "baseline":
             continue
-
-        # 🔥 FIX PATH
-        if args.eq_tag != "":
-            ckpt_dir = f"ckpts_{args.eq_tag}_{mode}_{args.channel}"
-        else:
-            ckpt_dir = f"ckpts_{mode}_{args.channel}"
-
-        ckpt_path = os.path.join(
-            args.fis_ckpt_root,
-            ckpt_dir,
-            "fis_power_best.pth"
-        )
-
+        ckpt_dir = f"ckpts_{args.eq_tag}_{mode}_{args.channel}" if args.eq_tag else f"ckpts_{mode}_{args.channel}"
+        ckpt_path = os.path.join(args.fis_ckpt_root, ckpt_dir, "fis_power_best.pth")
         print("Loading:", ckpt_path)
-
-        model = DeepJSCC_FIS(
-            c=c,
-            ratio=args.ratio,
-            channel_type=args.channel,
-            rician_k=args.rician_k,
-        ).to(device)
-
+        model = DeepJSCC_FIS(c=c, ratio=args.ratio, channel_type=args.channel, rician_k=args.rician_k).to(device)
         ckpt = torch.load(ckpt_path, map_location=device)
         model.load_state_dict(ckpt, strict=True)
         model.eval()
-
         fis_models[mode] = model
 
-    snrs = parse_list(args.snrs, float)
-    budgets = parse_list(args.budgets, float) if args.budgets else [args.budget]
+    # ✅ Dùng trực tiếp args.snrs và args.budgets
+    snrs = args.snrs
+    budgets = args.budgets if args.budgets is not None else [args.budget]
 
     all_out = {"results": {}}
-
     for R in budgets:
         out_R = {}
-
         for snr in snrs:
-            res, _ = eval_one(
+            res = eval_one(
                 baseline_model,
                 fis_models,
                 channel_type=args.channel,
@@ -233,19 +197,15 @@ def main():
                 device=device,
                 rayleigh_equalize=args.rayleigh_equalize,
             )
-
             out_R[str(snr)] = res
-
             print(f"\n=== R={R} | SNR={snr} ===")
             for m in modes:
                 print(f"{m:16s} PSNR={res[m]['psnr']:.3f} SSIM={res[m]['ssim']:.4f}")
-
         all_out["results"][str(R)] = out_R
 
     out_path = os.path.join(args.save_dir, "paper_sims_results.json")
     with open(out_path, "w") as f:
         json.dump(all_out, f, indent=2)
-
     print("\nSaved:", out_path)
 
 

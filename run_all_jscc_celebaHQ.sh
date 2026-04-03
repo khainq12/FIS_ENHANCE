@@ -48,7 +48,7 @@ python $ROOT/train_baseline.py \
   --image_size 256 \
   --channel $CH \
   --ratio 0.17 \
-  --epochs 1 \
+  --epochs 100 \
   --batch_size 16 \
   --num_workers 4 \
   --snr_min 0 --snr_max 20 \
@@ -70,7 +70,7 @@ python $ROOT/train_fis_power.py \
   --mode $MODE \
   --budget 1.0 \
   --ratio 0.17 \
-  --epochs 1 \
+  --epochs 100 \
   --batch_size 16 \
   --num_workers 4 \
   --snr_min 0 --snr_max 20 \
@@ -128,7 +128,7 @@ cat <<EOL > $DATA/exp_metadata_celeba_${EQ}_${CH,,}.json
   "snrs": [$SNRS],
   "budgets": [0.25,0.5,0.75,1.0],
   "batch_size": 16,
-  "epochs": 1,
+  "epochs": 100,
   "rayleigh_equalize": $([[ "$EQ" == "eq" ]] && echo true || echo false)
 }
 EOL

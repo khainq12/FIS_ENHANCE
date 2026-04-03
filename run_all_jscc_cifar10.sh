@@ -45,7 +45,7 @@ python $ROOT/train_baseline.py \
   --image_size 32 \
   --channel $CH \
   --ratio 0.17 \
-  --epochs 1 \
+  --epochs 10 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   ${RAY_FLAG:+$RAY_FLAG} \
@@ -65,7 +65,7 @@ python $ROOT/train_fis_power.py \
   --mode $MODE \
   --budget 1.0 \
   --ratio 0.17 \
-  --epochs 1 \
+  --epochs 10 \
   --batch_size 128 \
   --snr_min 0 --snr_max 20 \
   ${RAY_FLAG:+$RAY_FLAG} \
@@ -120,7 +120,7 @@ cat <<EOL > $DATA/exp_metadata_cifar10_${EQ}_${CH,,}.json
   "snrs": [$SNRS],
   "budgets": [0.25,0.5,0.75,1.0],
   "batch_size": 128,
-  "epochs": 1,
+  "epochs": 10,
   "rayleigh_equalize": $([[ "$EQ" == "eq" ]] && echo true || echo false)
 }
 EOL

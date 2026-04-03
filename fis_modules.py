@@ -139,7 +139,12 @@ class FIS_Importance(nn.Module):
 
         c = self.c.to(z.device, z.dtype).view(1, -1, 1, 1)
         I = (rules * c).sum(dim=1).clamp(0.0, 1.0)
-
+        # if not self.training:
+        #     print("[DEBUG][I]",
+        #         "min:", I.min().item(),
+        #         "max:", I.max().item(),
+        #         "mean:", I.mean().item(),
+        #         "std:", I.std().item())
         if not return_rules:
             return I
         rule_id = torch.argmax(rules, dim=1)
@@ -164,13 +169,13 @@ class FIS_PowerAllocation(nn.Module):
 
     def __init__(
         self,
-        a_min: float = 0.75,
+        a_min: float = 0.5,
         a_med: float = 1.00,
-        a_high: float = 1.35,      # FIX-2: canonical value, do not override to 2.0
+        a_high: float = 2,      # FIX-2: canonical value, do not override to 2.0
         snr_min_db: float = 0.0,
         snr_max_db: float = 20.0,  # FIX-3: must match training snr_max (default 20)
         delta_min: float = 0.10,
-        delta_max: float = 0.32,
+        delta_max: float = 0.6,
         rule_temp: float = 1.70,
         rule_floor: float = 0.02,
         score_scale: float = 1.10,
@@ -224,7 +229,9 @@ class FIS_PowerAllocation(nn.Module):
 
         rules_raw = torch.stack([r0, r1, r2, r3, r4, r5], dim=1)
         rules = self._normalize_rules(rules_raw)
-
+        # if not self.training:
+        #     r_mean = rules.mean(dim=(0,2,3))
+        #     print("[DEBUG][Rules]", r_mean.detach().cpu().numpy())
         c = self.c.to(I.device, I.dtype).view(1, -1, 1, 1)
         score = (rules * c).sum(dim=1)
 
@@ -240,6 +247,12 @@ class FIS_PowerAllocation(nn.Module):
         A = A.clamp(min=self.a_min, max=self.a_high)
         A = _mean_normalize(A, eps=self.eps)
 
+        # if not self.training:
+        #     print("[DEBUG][A]",
+        #         "min:", A.min().item(),
+        #         "max:", A.max().item(),
+        #         "mean:", A.mean().item(),
+        #         "std:", A.std().item())
         if not return_rules:
             return A
         rule_id = torch.argmax(rules, dim=1)
