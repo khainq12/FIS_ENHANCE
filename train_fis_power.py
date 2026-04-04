@@ -52,8 +52,11 @@ def compute_rule_usage(model, loader, device, snr, budget, mode):
 #  suboptimal at 1 dB or 13 dB during paper benchmarking)
 # ============================================================
 
-EVAL_SNR_LIST = [1, 4, 7, 10, 13]
-
+# EVAL_SNR_LIST = [1, 4, 7, 10, 13]
+# Dòng 55, thay
+# EVAL_SNR_LIST = [1, 4, 7, 10, 13]
+# thành
+EVAL_SNR_LIST = [-5, 0, 5, 10, 15]
 
 def evaluate_multi_snr(model, loader, device, snr_list, budget, mode, channel, rician_k):
     """Return mean PSNR averaged over all SNRs in snr_list."""
@@ -137,7 +140,11 @@ def main():
     loss_fn = nn.MSELoss()
 
     best_psnr = -1.0
-    train_snr_list = [1, 4, 7, 10, 13]
+    # train_snr_list = [1, 4, 7, 10, 13]
+    # # Dòng 140, thay
+    # train_snr_list = [1, 4, 7, 10, 13]
+    # thành
+    train_snr_list = [-5, 0, 3, 7, 10, 14, 18]
 
     for ep in range(1, args.epochs + 1):
         model.train()

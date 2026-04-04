@@ -175,10 +175,10 @@ class FIS_PowerAllocation(nn.Module):
         snr_min_db: float = 0.0,
         snr_max_db: float = 20.0,  # FIX-3: must match training snr_max (default 20)
         delta_min: float = 0.10,
-        delta_max: float = 0.6,
-        rule_temp: float = 1.70,
-        rule_floor: float = 0.02,
-        score_scale: float = 1.10,
+        delta_max: float = 0.25,
+        rule_temp: float = 1.20,
+        rule_floor: float = 0.05,
+        score_scale: float = 2.0,
         eps: float = 1e-8,
     ):
         super().__init__()
