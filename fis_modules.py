@@ -174,8 +174,8 @@ class FIS_PowerAllocation(nn.Module):
         a_high: float = 2,      # FIX-2: canonical value, do not override to 2.0
         snr_min_db: float = 0.0,
         snr_max_db: float = 20.0,  # FIX-3: must match training snr_max (default 20)
-        delta_min: float = 0.10,
-        delta_max: float = 0.25,
+        delta_min: float = 0.40,    # 0.1
+        delta_max: float = 1.20,    # 0.25
         rule_temp: float = 1.20,
         rule_floor: float = 0.05,
         score_scale: float = 2.0,
@@ -195,8 +195,8 @@ class FIS_PowerAllocation(nn.Module):
         self.eps = eps
         # Signed consequents. Positive → allocate more, negative → less.
         # Calibrated for amplitude-map convention (applied directly, no sqrt in model.py).
-        self.c = torch.tensor([+0.90, +0.55, +0.20, +0.25, 0.00, -0.65], dtype=torch.float32)
-
+        # self.c = torch.tensor([+0.90, +0.55, +0.20, +0.25, 0.00, -0.65], dtype=torch.float32)
+        self.c = torch.tensor([+0.90, +0.65, +0.55, +0.45, +0.05, -0.70], dtype=torch.float32)
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
         s = max(0.0, min(1.0, s))
@@ -239,8 +239,11 @@ class FIS_PowerAllocation(nn.Module):
         score = score - score.mean(dim=(1, 2), keepdim=True)
         score = self.score_scale * score
 
+        # delta = self._delta_from_snr(float(s))
+        # amp = float(budget) * delta
+
         delta = self._delta_from_snr(float(s))
-        amp = float(budget) * delta
+        amp = (0.2 + 0.8 * float(budget)) * delta
 
         # A is an amplitude map: exp(tanh) keeps it positive and bounded.
         A = torch.exp(amp * torch.tanh(score))
