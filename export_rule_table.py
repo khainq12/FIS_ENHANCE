@@ -1,119 +1,92 @@
-import json
-import pandas as pd
+
 import argparse
+import json
 import os
 
-# ================== ARGPARSE ==================
-parser = argparse.ArgumentParser()
-parser.add_argument("--channel", type=str, required=True)
-parser.add_argument("--root", type=str, required=True)
-parser.add_argument("--output_dir", type=str, required=True)
+import pandas as pd
 
-# 🔥 NEW: eq / noeq
-parser.add_argument("--eq_tag", type=str, default="noeq", choices=["eq", "noeq"])
 
-args = parser.parse_args()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--channel", type=str, required=True)
+    parser.add_argument("--root", type=str, default="")
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--eq_tag", type=str, default="noeq", choices=["eq", "noeq", ""])
+    parser.add_argument("--rule_usage_map_json", type=str, default="",
+                        help="Optional JSON mapping method -> explicit rule_usage_best.json path.")
+    args = parser.parse_args()
 
-# ================== NORMALIZE CHANNEL ==================
-channel_map = {
-    "awgn": "AWGN",
-    "AWGN": "AWGN",
-    "rayleigh": "Rayleigh",
-    "Rayleigh": "Rayleigh",
-    "rician": "Rician",
-    "Rician": "Rician"
-}
+    channel_map = {
+        "awgn": "AWGN",
+        "AWGN": "AWGN",
+        "rayleigh": "Rayleigh",
+        "Rayleigh": "Rayleigh",
+        "rician": "Rician",
+        "Rician": "Rician",
+    }
+    if args.channel not in channel_map:
+        raise ValueError(f"Invalid channel: {args.channel}")
 
-if args.channel not in channel_map:
-    raise ValueError(f"Invalid channel: {args.channel}")
+    channel = channel_map[args.channel]
+    os.makedirs(args.output_dir, exist_ok=True)
 
-channel = channel_map[args.channel]
-root = args.root
-output_dir = args.output_dir
-eq_tag = args.eq_tag
+    methods = ["linear", "snr_only", "importance_only", "full"]
 
-os.makedirs(output_dir, exist_ok=True)
+    if args.rule_usage_map_json:
+        with open(args.rule_usage_map_json, "r", encoding="utf-8") as f:
+            files = json.load(f)
+    else:
+        def build_path(method):
+            if args.eq_tag:
+                return os.path.join(args.root, f"ckpts_{args.eq_tag}_{method}_{channel}", "rule_usage_best.json")
+            return os.path.join(args.root, f"ckpts_{method}_{channel}", "rule_usage_best.json")
+        files = {m: build_path(m) for m in methods}
 
-print(f"Channel: {channel}")
-print(f"Setting: {eq_tag}")
+    records = []
+    for method in methods:
+        path = files.get(method, "")
+        if not path or not os.path.exists(path):
+            print(f"Missing file for {method}: {path}")
+            continue
+        print(f"Loading: {path}")
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for layer, values in data.items():
+            for i, v in enumerate(values):
+                records.append({
+                    "method": method,
+                    "layer": layer,
+                    "rule": f"Rule {i}",
+                    "value": v,
+                })
 
-# ================== PATH CONFIG ==================
-def build_path(method):
-    return os.path.join(
-        root,
-        f"ckpts_{eq_tag}_{method}_{channel}",
-        "rule_usage_best.json"
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise RuntimeError("No data loaded. Check explicit paths or checkpoint naming.")
+
+    method_order = ["linear", "importance_only", "snr_only", "full"]
+    df["method"] = pd.Categorical(df["method"], categories=method_order, ordered=True)
+
+    pivot = df.pivot_table(index="rule", columns=["layer", "method"], values="value")
+    pivot = pivot.sort_index().sort_index(axis=1, level=[0, 1]).round(4)
+
+    caption_eq = args.eq_tag if args.eq_tag else "default"
+    caption = f"Rule usage per layer and method ({channel}, {caption_eq})"
+    label = f"tab:rule_usage_{channel.lower()}_{caption_eq}"
+    latex = pivot.to_latex(
+        caption=caption,
+        label=label,
+        float_format="%.4f",
+        multicolumn=True,
+        multicolumn_format="c",
     )
 
-methods = ["linear", "snr_only", "importance_only", "full"]
+    suffix = caption_eq
+    output_path = os.path.join(args.output_dir, f"rule_usage_{channel.lower()}_{suffix}.tex")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(latex)
+    print(f"Saved: {output_path}")
 
-files = {m: build_path(m) for m in methods}
 
-# ================== LOAD ==================
-records = []
-
-for method, path in files.items():
-    if not os.path.exists(path):
-        print(f"⚠️ Missing file: {path}")
-        continue
-
-    print(f"✔ Loading: {path}")
-
-    with open(path, "r") as f:
-        data = json.load(f)
-
-    for layer, values in data.items():
-        for i, v in enumerate(values):
-            records.append({
-                "method": method,
-                "layer": layer,
-                "rule": f"Rule {i}",
-                "value": v
-            })
-
-# ================== CHECK ==================
-df = pd.DataFrame(records)
-
-if df.empty:
-    raise RuntimeError("❌ No data loaded. Check checkpoint paths!")
-
-# ================== SORT METHOD ORDER ==================
-method_order = ["linear", "importance_only", "snr_only", "full"]
-df["method"] = pd.Categorical(df["method"], categories=method_order, ordered=True)
-
-# ================== PIVOT ==================
-pivot = df.pivot_table(
-    index="rule",
-    columns=["layer", "method"],
-    values="value"
-)
-
-pivot = pivot.sort_index()
-
-# sort columns nicely
-pivot = pivot.sort_index(axis=1, level=[0, 1])
-
-pivot = pivot.round(4)
-
-# ================== EXPORT LATEX ==================
-caption = f"Rule usage per layer and method ({channel}, {eq_tag})"
-label = f"tab:rule_usage_{channel.lower()}_{eq_tag}"
-
-latex = pivot.to_latex(
-    caption=caption,
-    label=label,
-    float_format="%.4f",
-    multicolumn=True,
-    multicolumn_format='c',
-)
-
-# ================== SAVE ==================
-output_path = os.path.join(
-    output_dir,
-    f"rule_usage_{channel.lower()}_{eq_tag}.tex"
-)
-
-with open(output_path, "w") as f:
-    f.write(latex)
-
-print(f"\n✅ Saved: {output_path}")
+if __name__ == "__main__":
+    main()
