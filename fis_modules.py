@@ -174,8 +174,8 @@ class FIS_PowerAllocation(nn.Module):
         a_high: float = 2,      # FIX-2: canonical value, do not override to 2.0
         snr_min_db: float = 0.0,
         snr_max_db: float = 20.0,  # FIX-3: must match training snr_max (default 20)
-        delta_min: float = 0.40,    # 0.1
-        delta_max: float = 1.20,    # 0.25
+        delta_min: float = 0.15,    # 0.1
+        delta_max: float = 0.45,    # 0.25
         rule_temp: float = 1.20,
         rule_floor: float = 0.05,
         score_scale: float = 2.0,
@@ -196,7 +196,7 @@ class FIS_PowerAllocation(nn.Module):
         # Signed consequents. Positive → allocate more, negative → less.
         # Calibrated for amplitude-map convention (applied directly, no sqrt in model.py).
         # self.c = torch.tensor([+0.90, +0.55, +0.20, +0.25, 0.00, -0.65], dtype=torch.float32)
-        self.c = torch.tensor([+0.90, +0.65, +0.55, +0.45, +0.05, -0.70], dtype=torch.float32)
+        self.c = torch.tensor([+0.80, +0.55, +0.45, +0.35, +0.05, -0.40], dtype=torch.float32)
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
         s = max(0.0, min(1.0, s))
@@ -224,8 +224,8 @@ class FIS_PowerAllocation(nn.Module):
         r1 = _fuzzy_and(iH, sM)
         r2 = _fuzzy_and(iH, sH)
         r3 = _fuzzy_and(iM, sL)
-        r4 = iM
-        r5 = iL
+        r4 = _fuzzy_and(iM, _fuzzy_or(sL, sM))
+        r5 = _fuzzy_and(iL, _fuzzy_or(sL, sM))
 
         rules_raw = torch.stack([r0, r1, r2, r3, r4, r5], dim=1)
         rules = self._normalize_rules(rules_raw)
@@ -243,19 +243,17 @@ class FIS_PowerAllocation(nn.Module):
         # amp = float(budget) * delta
 
         delta = self._delta_from_snr(float(s))
-        amp = (0.2 + 0.8 * float(budget)) * delta
+        amp = delta   # amp KHÔNG nhân budget — budget áp dụng qua interpolation
 
-        # A is an amplitude map: exp(tanh) keeps it positive and bounded.
-        A = torch.exp(amp * torch.tanh(score))
-        A = A.clamp(min=self.a_min, max=self.a_high)
+        A_fis = torch.exp(amp * torch.tanh(score))
+        A_fis = A_fis.clamp(min=self.a_min, max=self.a_high)
+
+        # Budget = interpolation giữa uniform(1.0) và FIS(A_fis)
+        # R=0 → A=1 (không redistribution)  
+        # R=1 → A=A_fis (đầy đủ redistribution)
+        A = float(budget) * A_fis + (1.0 - float(budget))
         A = _mean_normalize(A, eps=self.eps)
 
-        # if not self.training:
-        #     print("[DEBUG][A]",
-        #         "min:", A.min().item(),
-        #         "max:", A.max().item(),
-        #         "mean:", A.mean().item(),
-        #         "std:", A.std().item())
         if not return_rules:
             return A
         rule_id = torch.argmax(rules, dim=1)
@@ -352,10 +350,13 @@ class FIS_SpatialPowerController(nn.Module):
         if mode == "linear":
             I_c = I - I.mean(dim=(1, 2), keepdim=True)
             s = self.pow._snr_unit(snr_use, device=I.device, dtype=I.dtype)
-            amp = float(budget) * self.pow._delta_from_snr(float(s))
+            amp = self.pow._delta_from_snr(float(s))
             score = self.alpha_linear * I_c
-            A = torch.exp(amp * torch.tanh(score))
-            A = A.clamp(min=self.a_min, max=self.a_high)
+            A_fis = torch.exp(amp * torch.tanh(score))
+            A_fis = A_fis.clamp(min=self.a_min, max=self.a_high)
+
+            # Budget interpolation (giống PowerAllocation)
+            A = float(budget) * A_fis + (1.0 - float(budget))
             A = _mean_normalize(A, eps=self.eps)
             if not return_info:
                 return A
