@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 
 # ====== CONFIG ======
-input_csv = "/media/data/students/nguyenquangkhai/metrics_cifar10_noeq_awgn_budget_sweep.csv"
+input_csv = "/media/data/students/nguyenquangkhai/metrics_cifar10_eq_rayleigh_budget_sweep.csv"
 output_dir = "outputs"
 os.makedirs(output_dir, exist_ok=True)
 
