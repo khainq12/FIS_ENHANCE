@@ -15,7 +15,7 @@ DTS=/media/data/students/nguyenquangkhai/celeba256/face
 CHANNELS=("AWGN" "Rayleigh" "Rician")
 MODES=("linear" "importance_only" "snr_only" "full")
 
-SNRS="1,4,7,10,13"
+SNRS="1 4 7 10 13"
 BUDGETS=("0.25" "0.5" "0.75" "1.0")
 
 ########################################
