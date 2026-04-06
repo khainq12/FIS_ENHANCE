@@ -1,0 +1,56 @@
+{
+  "channel": "AWGN",
+  "snrs": {
+    "1.0": {
+      "budget_verdict": "ACTIVE",
+      "budget_A_std_range": [
+        0.0,
+        0.0995379388332367
+      ],
+      "budget_A_std_delta": 0.0995379388332367,
+      "corr_full_vs_snr_only": 0.0,
+      "full_approx_snr_only": false,
+      "mode_psnr": {
+        "full": 24.0337,
+        "snr_only": 24.1246,
+        "importance_only": 24.1346,
+        "linear": 24.1804
+      },
+      "full_minus_snr_only": -0.0909
+    },
+    "7.0": {
+      "budget_verdict": "ACTIVE",
+      "budget_A_std_range": [
+        0.0,
+        0.08021293580532074
+      ],
+      "budget_A_std_delta": 0.08021293580532074,
+      "corr_full_vs_snr_only": 0.0,
+      "full_approx_snr_only": false,
+      "mode_psnr": {
+        "full": 27.2135,
+        "snr_only": 27.1626,
+        "importance_only": 27.1594,
+        "linear": 27.1793
+      },
+      "full_minus_snr_only": 0.0509
+    },
+    "13.0": {
+      "budget_verdict": "ACTIVE",
+      "budget_A_std_range": [
+        0.0,
+        0.06003200635313988
+      ],
+      "budget_A_std_delta": 0.06003200635313988,
+      "corr_full_vs_snr_only": 0.0,
+      "full_approx_snr_only": false,
+      "mode_psnr": {
+        "full": 28.6961,
+        "snr_only": 28.6978,
+        "importance_only": 28.6303,
+        "linear": 28.7434
+      },
+      "full_minus_snr_only": -0.0017
+    }
+  }
+}
