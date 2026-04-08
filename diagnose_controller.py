@@ -1,4 +1,3 @@
-
 import argparse
 import json
 import os
@@ -76,7 +75,7 @@ def _clone_pending_fading(pending):
 
 
 @torch.no_grad()
-def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: float, mode: str, channel_ctx: Dict[str, torch.Tensor]) -> Dict[str, Any]:
+def run_one_mode(model, x, snr_db, budget, mode, channel_ctx):
     z = model.encoder(x)
     A, info = model.controller(
         z,
@@ -92,6 +91,9 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
     E_z = per_location_energy(z)
     E_zg = per_location_energy(z_g)
     E_ztx = per_location_energy(z_tx)
+
+    # FIX: gamma_eff_norm is [batch], A is [batch, c, H, W]
+    A_mean_per_sample = A.view(A.shape[0], -1).mean(dim=1)
 
     out = {
         'mode': mode,
@@ -109,12 +111,12 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
         'z_g_stats': tensor_stats(z_g),
         'z_tx_stats': tensor_stats(z_tx),
         'E_z_stats': tensor_stats(E_z),
-        'E_zg_stats': tensor_stats(E_zg),
+        'Ezg_stats': tensor_stats(E_zg),
         'E_ztx_stats': tensor_stats(E_ztx),
         'A_hist': hist_counts(A, bins=12),
         'E_ztx_hist': hist_counts(E_ztx, bins=12),
         'corr_A_I': flat_corr(A, info['I']) if 'I' in info else None,
-        'corr_A_gamma_eff': flat_corr(A, channel_ctx['gamma_eff_norm']),
+        'corr_A_gamma_eff': flat_corr(A_mean_per_sample, channel_ctx['gamma_eff_norm']),
         'mean_power_z': float(z.pow(2).mean().item()),
         'mean_power_z_g': float(z_g.pow(2).mean().item()),
         'mean_power_z_tx': float(z_tx.pow(2).mean().item()),
@@ -143,7 +145,7 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
 
 
 @torch.no_grad()
-def run_baseline(model: DeepJSCC_Baseline, x: torch.Tensor) -> Dict[str, Any]:
+def run_baseline(model, x):
     z = model.encoder(x)
     z_tx = power_normalize(z, P=1.0, eps=1e-8)
     E_z = per_location_energy(z)
@@ -161,7 +163,7 @@ def run_baseline(model: DeepJSCC_Baseline, x: torch.Tensor) -> Dict[str, Any]:
     }
 
 
-def save_map_png(x: torch.Tensor, path: str, title: str = ''):
+def save_map_png(x, path, title=''):
     import matplotlib.pyplot as plt
     arr = x.detach().float().cpu().numpy()
     plt.figure(figsize=(4, 4))
@@ -214,12 +216,11 @@ def main():
     if batch is None:
         raise ValueError(f'batch_index={args.batch_index} out of range')
 
-    # One shared channel context for all methods so the comparison remains paired.
     ch = Channel(channel_type=args.channel, snr_db=args.snr_db, rician_k=args.rician_k)
     ch.enable_rayleigh_equalization(args.rayleigh_equalize)
     channel_ctx = ch.sample_context(batch_size=batch.shape[0], device=batch.device, dtype=batch.dtype)
 
-    results: Dict[str, Any] = {
+    results = {
         'meta': {
             'channel': args.channel,
             'rician_k': args.rician_k,
@@ -268,8 +269,13 @@ def main():
         tensors = out['tensors']
         if tensors.get('I', None) is not None:
             save_map_png(tensors['I'][s], os.path.join(args.save_dir, f'{mode}_I_sample{s}.png'), f'{mode} I')
+
+        # FIX: skip scalar channel_rel (cannot imshow a scalar)
         if tensors.get('channel_rel', None) is not None:
-            save_map_png(tensors['channel_rel'][s].unsqueeze(0) if tensors['channel_rel'][s].dim()==0 else tensors['channel_rel'][s], os.path.join(args.save_dir, f'{mode}_channelRel_sample{s}.png'), f'{mode} channel_rel')
+            _cr = tensors['channel_rel'][s]
+            if _cr.dim() >= 2 or (_cr.dim() == 1 and _cr.numel() > 1):
+                save_map_png(_cr, os.path.join(args.save_dir, f'{mode}_channelRel_sample{s}.png'), f'{mode} channel_rel')
+
         save_map_png(tensors['A'][s], os.path.join(args.save_dir, f'{mode}_A_sample{s}.png'), f'{mode} A')
         save_map_png(per_location_energy(tensors['z'])[s], os.path.join(args.save_dir, f'{mode}_Ez_sample{s}.png'), f'{mode} E(z)')
         save_map_png(per_location_energy(tensors['z_g'])[s], os.path.join(args.save_dir, f'{mode}_Ezg_sample{s}.png'), f'{mode} E(z_g)')
@@ -278,6 +284,9 @@ def main():
     ref = raw['full']['tensors']
     for mode, out in raw.items():
         t = out['tensors']
+        # FIX: gamma_eff shape mismatch
+        A_mean = t['A'].view(t['A'].shape[0], -1).mean(dim=1)
+        ref_A_mean = ref['A'].view(ref['A'].shape[0], -1).mean(dim=1)
         comp = {
             'A_l1_mean_to_full': float((t['A'] - ref['A']).abs().mean().item()),
             'A_l2_rel_to_full': float((t['A'] - ref['A']).pow(2).mean().sqrt().item() / (ref['A'].pow(2).mean().sqrt().item() + 1e-8)),
@@ -285,7 +294,7 @@ def main():
             'z_tx_l2_rel_to_full': float((t['z_tx'] - ref['z_tx']).pow(2).mean().sqrt().item() / (ref['z_tx'].pow(2).mean().sqrt().item() + 1e-8)),
             'corr_A_with_full_A': flat_corr(t['A'], ref['A']),
             'corr_z_tx_energy_with_full': flat_corr(per_location_energy(t['z_tx']), per_location_energy(ref['z_tx'])),
-            'corr_A_with_gamma_eff': flat_corr(t['A'], channel_ctx['gamma_eff_norm']),
+            'corr_A_with_gamma_eff': flat_corr(A_mean, channel_ctx['gamma_eff_norm']),
         }
         results['comparisons_to_full'][mode] = comp
 
