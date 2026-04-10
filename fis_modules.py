@@ -198,7 +198,6 @@ class FIS_PowerAllocation(nn.Module):
         """Low SNR -> stronger redistribution; high SNR -> softer."""
         return self.delta_min + (self.delta_max - self.delta_min) * (1.0 - float(snr_u))
 
-    # [THAY ĐỔI 1] Thêm method mới: delta phụ thuộc cả SNR lẫn channel reliability
     def _delta_from_context(self, snr_u: float, C: torch.Tensor, mix: float = 0.6) -> torch.Tensor:
         """
         Build a per-sample redistribution strength from both nominal SNR and
@@ -208,14 +207,10 @@ class FIS_PowerAllocation(nn.Module):
         - C in [0,1], shape [B,H,W]: effective channel reliability map or scalar
 
         Lower reliability should increase redistribution strength.
-
-        Khi channel_rel=None (ablation modes), _prepare_channel_rel() trả về
-        giá trị constant từ SNR → c_bar = snr_u → rel_term = snr_term
-        → gate thu về snr_term → tương đương _delta_from_snr().
         """
-        c_bar = C.mean(dim=(1, 2), keepdim=True)  # [B, 1, 1]
+        c_bar = C.mean(dim=(1, 2), keepdim=True)
         snr_term = 1.0 - float(snr_u)
-        rel_term = 1.0 - c_bar                    # fade nặng → rel_term cao → delta lớn
+        rel_term = 1.0 - c_bar
         gate = mix * rel_term + (1.0 - mix) * snr_term
         delta = self.delta_min + (self.delta_max - self.delta_min) * gate
         return delta.clamp(self.delta_min, self.delta_max)
@@ -225,14 +220,10 @@ class FIS_PowerAllocation(nn.Module):
         den = rules.sum(dim=1, keepdim=True).clamp_min(self.eps)
         return rules / den
 
-    # [THAY ĐỔI 2] _prepare_channel_rel: interpolate thay vì crop+broadcast
     def _prepare_channel_rel(self, channel_rel: torch.Tensor | None, I: torch.Tensor, snr_db: float) -> torch.Tensor:
         """
         Convert channel_rel to a [B,H,W] tensor in [0,1].
         If not provided, fall back to nominal-SNR-based reliability.
-
-        GỐC: khi shape lệch → C[:, :1, :1].expand_as(I) (crop 1 điểm rồi broadcast → mất info)
-        MỚI: khi shape lệch → bilinear interpolate giữ cấu trúc spatial.
         """
         if channel_rel is None:
             s = self._snr_unit(snr_db, device=I.device, dtype=I.dtype)
@@ -248,15 +239,11 @@ class FIS_PowerAllocation(nn.Module):
         elif C.dim() == 2:
             C = C.unsqueeze(-1).expand_as(I)
         elif C.dim() == 3:
-            # GỐC: C = C[:, :1, :1].expand_as(I)
-            # MỚI: interpolate mượt mà
             if C.shape[1:] != I.shape[1:]:
                 C = torch.nn.functional.interpolate(
                     C.unsqueeze(1), size=I.shape[1:], mode='bilinear', align_corners=False
                 ).squeeze(1)
         elif C.dim() == 4:
-            # GỐC: C = C.squeeze(1); C = C[:, :1, :1].expand_as(I)
-            # MỚI: interpolate mượt mà
             C = C[:, 0]
             if C.shape[1:] != I.shape[1:]:
                 C = torch.nn.functional.interpolate(
@@ -296,11 +283,6 @@ class FIS_PowerAllocation(nn.Module):
         score = score - score.mean(dim=(1, 2), keepdim=True)
         score = self.score_scale * score
 
-        # [THAY ĐỔI 3] delta giờ phụ thuộc cả gamma_eff, không chỉ SNR danh định
-        # GỐC: delta = self._delta_from_snr(float(s)); amp = delta  (scalar)
-        # MỚI: delta = self._delta_from_context(...)  (tensor [B,1,1])
-        #   - AWGN (C≈1): rel_term≈0 → gate≈0.4*snr_term → delta NHỎ HƠN → redistribution nhẹ hơn
-        #   - Rayleigh fade (C thấp): rel_term cao → gate tăng → delta LỚN HƠN → redistribution mạnh hơn
         delta = self._delta_from_context(float(s), C, mix=0.6)
         amp = delta
 
@@ -324,7 +306,7 @@ class FIS_SpatialPowerController(nn.Module):
     modes:
       - "full": importance FIS + channel-aware power FIS
       - "importance_only": ignore channel context in layer-2
-      - "snr_only": ignore content importance (I = 0.5 constant) → TRUE UNIFORM
+      - "snr_only": ignore content importance (I = 0.5 constant)
       - "linear": symmetric linear residual baseline around mean(I)
     """
 
@@ -377,9 +359,6 @@ class FIS_SpatialPowerController(nn.Module):
         info = {}
         mode = str(mode).lower()
 
-        # [THAY ĐỔI 4] snr_only = TRUE UNIFORM — early return, không qua FIS layer-2
-        # GỐC: I = 0.5, rồi vẫn đi qua self.pow() → A phụ thuộc score & channel_rel
-        # MỚI: A = ones, early return → hoàn toàn độc lập với mọi thứ
         if mode == "snr_only":
             I = torch.full((z.shape[0], z.shape[2], z.shape[3]), 0.5, device=z.device, dtype=z.dtype)
             A = torch.ones((z.shape[0], z.shape[2], z.shape[3]), device=z.device, dtype=z.dtype)
@@ -402,9 +381,6 @@ class FIS_SpatialPowerController(nn.Module):
             else:
                 I = self.imp(z, return_rules=False)
 
-        # [THAY ĐỔI 5] Bỏ hardcode snr_use = 10.0 cho importance_only
-        # GỐC: snr_use = 10.0 if mode == "importance_only" else float(snr_db)
-        # MỚI: mọi mode đều dùng SNR thực tế
         snr_use = float(snr_db)
 
         if mode == "linear":
@@ -424,8 +400,7 @@ class FIS_SpatialPowerController(nn.Module):
                 info["channel_rel"] = channel_rel
             return A, info
 
-        # importance_only: ignore channel context (isolate content-based policy)
-        # full: use channel context (content + channel awareness)
+        # importance_only explicitly ignores the extra channel descriptor.
         channel_rel_use = None if mode == "importance_only" else channel_rel
 
         if return_info:

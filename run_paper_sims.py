@@ -113,7 +113,7 @@ def eval_one(
                 snr_db=snr_db,
                 budget=budget,
                 mode=mode,
-                channel_rel=ctx["gamma_eff_norm"],
+                channel_rel=ctx.get("channel_rel", ctx["gamma_eff_norm"]),  # ✅ ĐÚNG
                 return_info=False,
             )
             z_g = z * A.unsqueeze(1)

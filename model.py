@@ -9,6 +9,7 @@ from fis_modules import FIS_SpatialPowerController
 def power_normalize(z: torch.Tensor, P: float = 1.0, eps: float = 1e-8) -> torch.Tensor:
     """
     Per-sample power normalization so that mean(z^2) = P.
+
     z: [B,C,H,W] real-valued (I/Q stacked channels)
     """
     p = z.pow(2).mean(dim=(1, 2, 3), keepdim=True).clamp_min(eps)
@@ -20,10 +21,11 @@ class DeepJSCC_FIS(nn.Module):
     """
     Deep-JSCC backbone + interpretable FIS spatial power controller.
 
-    This patch keeps the backbone unchanged but adds an optional transmitter-side
-    channel context for the controller. The context is sampled from the same
-    block-fading realization that is applied by channel.forward(), which makes
-    the controller fading-aware without turning the method into a new backbone.
+    This patch keeps the backbone unchanged but adds an optional
+    transmitter-side channel context for the controller. The context is
+    sampled from the same block-fading realization that is applied by
+    channel.forward(), which makes the controller fading-aware without
+    turning the method into a new backbone.
     """
 
     def __init__(
@@ -49,12 +51,13 @@ class DeepJSCC_FIS(nn.Module):
                 raise ValueError("input_size must be a (C,H,W) tuple")
             dummy = torch.zeros(1, *input_size)
             c = ratio2filtersize(dummy, ratio)
-        self.c = int(c)
 
+        self.c = int(c)
         self.encoder = _Encoder(c=self.c, P=P, apply_norm=False)
         self.decoder = _Decoder(self.c)
         self.channel = Channel(channel_type=channel_type, P=P, rician_k=rician_k)
         self.P = float(P)
+
         self.controller = FIS_SpatialPowerController(
             a_min=a_min,
             a_med=a_med,
@@ -108,7 +111,9 @@ class DeepJSCC_FIS(nn.Module):
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                channel_rel=None if channel_ctx is None else channel_ctx["gamma_eff_norm"],
+                channel_rel=None if channel_ctx is None else channel_ctx.get(
+                    "channel_rel", channel_ctx["gamma_eff_norm"]
+                ),
                 return_info=True,
             )
         else:
@@ -117,7 +122,9 @@ class DeepJSCC_FIS(nn.Module):
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                channel_rel=None if channel_ctx is None else channel_ctx["gamma_eff_norm"],
+                channel_rel=None if channel_ctx is None else channel_ctx.get(
+                    "channel_rel", channel_ctx["gamma_eff_norm"]
+                ),
                 return_info=False,
             )
 
@@ -137,4 +144,5 @@ class DeepJSCC_FIS(nn.Module):
             if channel_ctx is not None:
                 info["channel_ctx"] = channel_ctx
             return z_tx, x_hat, info
+
         return z_tx, x_hat
