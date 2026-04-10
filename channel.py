@@ -44,6 +44,9 @@ class Channel(nn.Module):
         rician_k: float = 4.0,
         context_db_min: float = -15.0,
         context_db_max: float = 20.0,
+        # [THAY ĐỔI 1] Thêm 2 param mới cho sigmoid normalization
+        context_norm_mode: str = "sigmoid",
+        context_sigmoid_sigma: float = 10.0,
     ):
         super().__init__()
         self.channel_type = str(channel_type).lower()
@@ -53,6 +56,9 @@ class Channel(nn.Module):
         self.rician_k = float(rician_k)
         self.context_db_min = float(context_db_min)
         self.context_db_max = float(context_db_max)
+        # [THAY ĐỔI 1] Lưu 2 param mới
+        self.context_norm_mode = str(context_norm_mode).lower()  # "sigmoid" hoặc "linear"
+        self.context_sigmoid_sigma = float(context_sigmoid_sigma)
 
         # If True, assume perfect CSI at Rx and apply 1-tap equalization
         # for fading channels.
@@ -84,9 +90,34 @@ class Channel(nn.Module):
     def _snr_lin(self, device, dtype=torch.float32) -> torch.Tensor:
         return torch.tensor(10.0 ** (self.snr_db / 10.0), device=device, dtype=dtype)
 
+    # [THAY ĐỔI 2] _norm_db: sigmoid thay vì linear
     def _norm_db(self, x_db: torch.Tensor) -> torch.Tensor:
-        x = (x_db - self.context_db_min) / (self.context_db_max - self.context_db_min + self.eps)
-        return torch.clamp(x, 0.0, 1.0)
+        """
+        Normalize effective SNR (in dB) to [0, 1] for the FIS antecedent.
+
+        Modes:
+          - "sigmoid" (default mới): soft normalization centred trên nominal SNR.
+            gamma_eff_norm = sigmoid((x_db - snr_db) / sigma)
+            Giải quyết vấn đề: vùng SNR thấp bị compress khi dùng linear.
+
+            Ví dụ (snr_db=13, sigma=10):
+              gamma_eff = 13 dB  → norm ≈ 0.50  (nominal)
+              gamma_eff =  3 dB  → norm ≈ 0.27  (fade -10 dB)
+              gamma_eff = -7 dB  → norm ≈ 0.12  (deep fade -20 dB)
+              gamma_eff = 23 dB  → norm ≈ 0.73  (good +10 dB)
+
+          - "linear" (legacy): min-max normalization.
+            gamma_eff_norm = (x_db - db_min) / (db_max - db_min)
+            Giữ lại cho backward compatibility.
+        """
+        if self.context_norm_mode == "sigmoid":
+            mu = float(self.snr_db)
+            sigma = max(float(self.context_sigmoid_sigma), 1e-6)
+            return torch.sigmoid((x_db - mu) / sigma)
+        else:
+            # Legacy linear normalization
+            x = (x_db - self.context_db_min) / (self.context_db_max - self.context_db_min + self.eps)
+            return torch.clamp(x, 0.0, 1.0)
 
     def _split_iq(self, x: torch.Tensor):
         B, C, H, W = x.shape
@@ -183,7 +214,7 @@ class Channel(nn.Module):
             )
 
         gamma_eff_db = 10.0 * torch.log10(gamma_eff_lin.clamp_min(self.eps))
-        gamma_eff_norm = self._norm_db(gamma_eff_db)
+        gamma_eff_norm = self._norm_db(gamma_eff_db)  # giờ dùng sigmoid (default)
         posteq_noise_var = noise_var / h_abs2
         eq_quality = 1.0 / posteq_noise_var.clamp_min(self.eps)
 
