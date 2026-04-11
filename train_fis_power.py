@@ -229,7 +229,14 @@ def main():
     if args.baseline_ckpt:
         model = load_backbone_from_baseline(model, args.baseline_ckpt, device)
 
-    if args.baseline_ckpt:
+    # ── Check controller params ──
+    # FIS controller is fully rule-based (torch.tensor, not nn.Parameter),
+    # so it has NO trainable weights. Freezing encoder+decoder would leave
+    # the optimizer with an empty parameter list and crash.
+    controller_has_params = sum(1 for _ in model.controller.parameters()) > 0
+
+    if args.baseline_ckpt and controller_has_params:
+        # Phase 1: freeze backbone, only train controller
         set_requires_grad(model.encoder, False)
         set_requires_grad(model.decoder, False)
         set_requires_grad(model.controller, True)
@@ -237,20 +244,26 @@ def main():
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr,
         )
+        n_ctrl = sum(1 for p in model.controller.parameters())
+        print(f"[Warm-start] Phase 1: controller-only ({n_ctrl} params)")
     else:
+        if args.baseline_ckpt and not controller_has_params:
+            print("[Warm-start] Controller has no trainable params (rule-based).")
+            print("[Warm-start] Training full model from baseline backbone init.")
         opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     loss_fn = nn.MSELoss()
 
     best_psnr = -1.0
     phase2_switched = False
+    use_two_phase = args.baseline_ckpt and controller_has_params
 
     print(f"Training SNR list: {train_snr_list}")
     print(f"Eval SNR list: {eval_snr_list}")
 
     for ep in range(1, args.epochs + 1):
         if (
-            args.baseline_ckpt
+            use_two_phase
             and not phase2_switched
             and ep == args.warmstart_controller_only_epochs + 1
         ):
