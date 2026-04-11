@@ -284,6 +284,14 @@ class FIS_PowerAllocation(nn.Module):
         score = self.score_scale * score
 
         delta = self._delta_from_context(float(s), C, mix=0.6)
+
+        # Good-channel attenuation:
+        # when the effective channel reliability is already very high, strong
+        # redistribution is often unnecessary and can hurt AWGN performance.
+        c_bar = C.mean(dim=(1, 2), keepdim=True)
+        good_gate = torch.clamp((c_bar - 0.85) / 0.15, 0.0, 1.0)
+        delta = delta * (1.0 - 0.8 * good_gate)
+
         amp = delta
 
         A_fis = torch.exp(amp * torch.tanh(score))
@@ -360,12 +368,23 @@ class FIS_SpatialPowerController(nn.Module):
         mode = str(mode).lower()
 
         if mode == "snr_only":
+            # IMPORTANT:
+            # Under the current architecture, the controller can only build a
+            # spatial power map A(i,j). However, the available channel context
+            # is a block-level reliability scalar per sample. After expansion,
+            # that scalar is spatially constant, so any "SNR-only" spatial map
+            # would collapse to A = 1 after mean normalization.
+            #
+            # Therefore, snr_only is intentionally kept as an identity spatial
+            # controller. It is useful only as a diagnostic ablation / no-control
+            # reference and must not be interpreted as true SNR-aware allocation.
             I = torch.full((z.shape[0], z.shape[2], z.shape[3]), 0.5, device=z.device, dtype=z.dtype)
             A = torch.ones((z.shape[0], z.shape[2], z.shape[3]), device=z.device, dtype=z.dtype)
             if not return_info:
                 return A
             info["I"] = I
             info["A"] = A
+            info["snr_only_noop"] = torch.tensor(1.0, device=z.device, dtype=z.dtype)
             if channel_rel is not None:
                 info["channel_rel"] = channel_rel
             return A, info

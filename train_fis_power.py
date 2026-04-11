@@ -52,6 +52,40 @@ def compute_rule_usage(model, loader, device, snr, budget, mode):
     return result
 
 
+def set_requires_grad(module: nn.Module, flag: bool) -> None:
+    for p in module.parameters():
+        p.requires_grad = flag
+
+
+def _normalize_loaded_state_dict(ckpt):
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        ckpt = ckpt["state_dict"]
+    if not isinstance(ckpt, dict):
+        raise TypeError("Checkpoint must contain a state_dict-like mapping.")
+    out = {}
+    for k, v in ckpt.items():
+        nk = k[7:] if k.startswith("module.") else k
+        out[nk] = v
+    return out
+
+
+def load_backbone_from_baseline(fis_model: nn.Module, ckpt_path: str, device: torch.device) -> nn.Module:
+    ckpt = torch.load(ckpt_path, map_location=device)
+    src_sd = _normalize_loaded_state_dict(ckpt)
+    dst_sd = fis_model.state_dict()
+
+    copied = []
+    for k, v in src_sd.items():
+        if k in dst_sd and dst_sd[k].shape == v.shape:
+            dst_sd[k] = v
+            copied.append(k)
+
+    fis_model.load_state_dict(dst_sd, strict=False)
+    print(f"[Warm-start] Copied {len(copied)} tensors from baseline checkpoint: {ckpt_path}")
+    return fis_model
+
+
+
 @torch.no_grad()
 def evaluate_multi_snr(model, loader, device, snr_list, budget, mode, channel, rician_k):
     model.eval()
@@ -106,9 +140,18 @@ def main():
         default=None,
         help="SNRs used for best-checkpoint selection. Defaults to train_snr_list; if that is also omitted, uses midpoint range.",
     )
+    ap.add_argument("--baseline_ckpt", type=str, default="",
+                    help="Optional baseline checkpoint used to warm-start the FIS backbone.")
+    ap.add_argument("--warmstart_controller_only_epochs", type=int, default=10,
+                    help="Number of epochs to train controller only after loading baseline_ckpt.")
+    ap.add_argument("--finetune_lr", type=float, default=1e-5,
+                    help="Learning rate used after unfreezing the full model.")
     args = ap.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
+    if args.mode == "snr_only":
+        print("[WARN] snr_only is an identity spatial controller under the current block-fading context.")
+        print("[WARN] Do not interpret snr_only as true SNR-aware spatial allocation in the paper.")
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -165,6 +208,9 @@ def main():
         "rayleigh_equalize": bool(args.rayleigh_equalize),
         "seed": args.seed,
         "ratio": args.ratio,
+        "baseline_ckpt": args.baseline_ckpt,
+        "warmstart_controller_only_epochs": args.warmstart_controller_only_epochs,
+        "finetune_lr": args.finetune_lr,
     }
     with open(os.path.join(args.save_dir, "run_config.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
@@ -180,15 +226,41 @@ def main():
     ).to(device)
     model.channel.enable_rayleigh_equalization(args.rayleigh_equalize)
 
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    if args.baseline_ckpt:
+        model = load_backbone_from_baseline(model, args.baseline_ckpt, device)
+
+    if args.baseline_ckpt:
+        set_requires_grad(model.encoder, False)
+        set_requires_grad(model.decoder, False)
+        set_requires_grad(model.controller, True)
+        opt = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=args.lr,
+        )
+    else:
+        opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+
     loss_fn = nn.MSELoss()
 
     best_psnr = -1.0
+    phase2_switched = False
 
     print(f"Training SNR list: {train_snr_list}")
     print(f"Eval SNR list: {eval_snr_list}")
 
     for ep in range(1, args.epochs + 1):
+        if (
+            args.baseline_ckpt
+            and not phase2_switched
+            and ep == args.warmstart_controller_only_epochs + 1
+        ):
+            set_requires_grad(model.encoder, True)
+            set_requires_grad(model.decoder, True)
+            set_requires_grad(model.controller, True)
+            opt = torch.optim.Adam(model.parameters(), lr=args.finetune_lr)
+            phase2_switched = True
+            print("[Phase switch] Unfroze encoder+decoder and switched to light full-model finetuning.")
+
         model.train()
         t0 = time.time()
         running = 0.0

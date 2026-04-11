@@ -199,6 +199,9 @@ def main():
     baseline_model.eval()
 
     modes = [m.strip().lower() for m in args.modes.split(",") if m.strip()]
+    if "snr_only" in modes:
+        print("[WARN] snr_only is an identity spatial controller in the current implementation.")
+        print("[WARN] Treat it as a no-spatial-control diagnostic, not as true SNR-aware allocation.")
     fis_models = {}
     loaded_fis_paths = {}
 
