@@ -20,12 +20,13 @@
 #  Tùy chọn khác:
 #    --fast        : chế độ nhanh (chỉ 3 SNR: 1 7 13)
 #    --snr N       : SNR dB cho diagnose (mặc định: 13)
+#    --no-warmstart: tắt warm-start từ baseline (train FIS from scratch)
 #    --dry         : chỉ in lệnh, không chạy thực sự
 #=============================================================================
 
 set -uo pipefail
 
-# --------------- CẤU HÝNH ---------------
+# --------------- CẤU HÌNH ---------------
 DATASET="cifar10"
 IMAGE_SIZE=32
 SNR_MIN=1
@@ -39,6 +40,12 @@ SNR_DB=1
 BASELINE_CKPT_NAME="baseline_best.pth"
 FIS_CKPT_NAME="fis_power_best.pth"
 
+# --------------- Warm-start ---------------
+WARMSTART=true
+WARMSTART_CONTROLLER_EPOCHS=10
+FINETUNE_LR=1e-5
+
+# --------------- Chế độ ---------------
 TRAIN_ONLY=false
 DIAG_ONLY=false
 SIMS_ONLY=false
@@ -55,11 +62,13 @@ for arg in "$@"; do
         --awgn)         RUN_NOEQ=false; RUN_EQ=false ;;
         --noeq)         RUN_AWGN=false; RUN_EQ=false ;;
         --eq)           RUN_AWGN=false; RUN_NOEQ=false ;;
+        --rayleigh)     RUN_AWGN=false ;;
         --snr)          shift; SNR_DB="${1:-13}" ;;
         --train-only)   DIAG_ONLY=false; SIMS_ONLY=false; TRAIN_ONLY=true ;;
         --diag-only)    TRAIN_ONLY=false; SIMS_ONLY=false; DIAG_ONLY=true ;;
         --sims-only)    TRAIN_ONLY=false; DIAG_ONLY=false; SIMS_ONLY=true ;;
         --fast)         TRAIN_SNR="1 7 13"; EVAL_SNR="1 7 13" ;;
+        --no-warmstart) WARMSTART=false ;;
         --dry)          DRY_RUN=true ;;
     esac
 done
@@ -69,6 +78,12 @@ if [ "$TRAIN_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ TRAIN (Part 1)"
 elif [ "$DIAG_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ DIAGNOSE (Part 2)"
 elif [ "$SIMS_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ PAPER SIMS (Part 3)"
 else echo "🔧 CHẾ ĐỘ: TRAIN + DIAGNOSE + PAPER SIMS"; fi
+
+if [ "$WARMSTART" = true ]; then
+    echo "🔥 WARM-START: ON  (controller ${WARMSTART_CONTROLLER_EPOCHS} ep → finetune lr=${FINETUNE_LR})"
+else
+    echo "🔥 WARM-START: OFF (train FIS from scratch)"
+fi
 
 # ================================================================
 #  HÀM
@@ -100,7 +115,7 @@ run_baseline() {
     [ "$DRY_RUN" = false ] && eval "$CMD"
 }
 
-# --- Part 1: Train FIS ---
+# --- Part 1: Train FIS (với warm-start từ baseline) ---
 # $1=MODE  $2=TAG  $3=CHANNEL  $4=DIR_SUFFIX  $5=EXTRA_FLAG
 run_fis() {
     local MODE=$1
@@ -110,12 +125,26 @@ run_fis() {
     local EXTRA_FLAG="${5:-}"
     local SAVE_DIR="${BASE_DIR}/ckpts_${TAG}_${MODE}_${CHANNEL}${DIR_SUFFIX}"
 
+    # ── Tạo warm-start flag ──
+    local WARMSTART_FLAG=""
+    if [ "$WARMSTART" = true ]; then
+        local BASELINE_CKPT="${BASE_DIR}/ckpts_${TAG}_baseline_${CHANNEL}${DIR_SUFFIX}/${BASELINE_CKPT_NAME}"
+        if [ -f "${BASELINE_CKPT}" ]; then
+            WARMSTART_FLAG="--baseline_ckpt ${BASELINE_CKPT} \
+  --warmstart_controller_only_epochs ${WARMSTART_CONTROLLER_EPOCHS} \
+  --finetune_lr ${FINETUNE_LR}"
+            echo "  🔥 Warm-start: ${BASELINE_CKPT}"
+        else
+            echo "  ⚠️  Baseline not found: ${BASELINE_CKPT} — training from scratch"
+        fi
+    fi
+
     local CMD="python train_fis_power.py \
   --dataset ${DATASET} --image_size ${IMAGE_SIZE} \
   --channel ${CHANNEL} --mode ${MODE} --budget ${BUDGET} \
   --snr_min ${SNR_MIN} --snr_max ${SNR_MAX} \
   --train_snr_list ${TRAIN_SNR} --eval_snr_list ${EVAL_SNR} \
-  --save_dir ${SAVE_DIR} ${EXTRA_FLAG}"
+  --save_dir ${SAVE_DIR} ${WARMSTART_FLAG} ${EXTRA_FLAG}"
 
     echo ""
     echo "============================================================"
