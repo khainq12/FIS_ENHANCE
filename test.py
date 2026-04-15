@@ -2,6 +2,20 @@
 # git add .
 # git commit -m "Fix training bug + improve FIS"
 # git push
+
+
+
+# # 1. Xem file nào đã thay đổi nhưng chưa commit
+# git status
+
+# # 2. Thêm file mới vào git
+# git add diagnose_controller.py run_all.sh run_paper_sims.py
+
+# # 3. Commit
+# git commit -m "Add run_all.sh, fix diagnose_controller, add paper sims"
+
+# # 4. Push
+# git push -u origin feature/fis-channel-aware-controller-r2
 import torch
 from torchvision.datasets import CIFAR10
 from torchvision import transforms
