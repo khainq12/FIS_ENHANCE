@@ -9,7 +9,7 @@
 # git status
 
 # # 2. Thêm file mới vào git
-# git add diagnose_controller.py run_all.sh run_paper_sims.py
+# git add .
 
 # # 3. Commit
 # git commit -m "Add run_all.sh, fix diagnose_controller, add paper sims"

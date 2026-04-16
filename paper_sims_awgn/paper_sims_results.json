@@ -1,0 +1,351 @@
+{
+  "channel": "AWGN",
+  "dataset": "cifar10",
+  "image_size": 32,
+  "rayleigh_equalize": false,
+  "baseline_ckpt": "exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth",
+  "fis_ckpts": {
+    "linear": "exp_ctx/ckpts_awgn_linear_AWGN/fis_power_best.pth",
+    "importance_only": "exp_ctx/ckpts_awgn_importance_only_AWGN/fis_power_best.pth",
+    "snr_only": "exp_ctx/ckpts_awgn_snr_only_AWGN/fis_power_best.pth",
+    "full": "exp_ctx/ckpts_awgn_full_AWGN/fis_power_best.pth"
+  },
+  "results": {
+    "1.0": {
+      "1.0": {
+        "baseline": {
+          "psnr": 22.99010981789118,
+          "ssim": 0.741659277602087,
+          "n": 79,
+          "time": 0.004763796359677858
+        },
+        "linear": {
+          "psnr": 24.082134560693667,
+          "ssim": 0.7754521528376809,
+          "n": 79,
+          "time": 0.0017756721641443952
+        },
+        "importance_only": {
+          "psnr": 23.598134125335307,
+          "ssim": 0.7561275725123249,
+          "n": 79,
+          "time": 0.0015623660027226315
+        },
+        "snr_only": {
+          "psnr": 24.29027559787412,
+          "ssim": 0.7840544113629981,
+          "n": 79,
+          "time": 0.000697594654710987
+        },
+        "full": {
+          "psnr": 24.383505012415633,
+          "ssim": 0.7880625777606722,
+          "n": 79,
+          "time": 0.0015257883675490753
+        }
+      },
+      "4.0": {
+        "baseline": {
+          "psnr": 23.95884813236285,
+          "ssim": 0.781699702709536,
+          "n": 79,
+          "time": 0.0007714742346654964
+        },
+        "linear": {
+          "psnr": 25.829966195022003,
+          "ssim": 0.8302720807775666,
+          "n": 79,
+          "time": 0.001181647747377806
+        },
+        "importance_only": {
+          "psnr": 25.244726688047,
+          "ssim": 0.8135232706613178,
+          "n": 79,
+          "time": 0.0015247562263585345
+        },
+        "snr_only": {
+          "psnr": 26.214367444002175,
+          "ssim": 0.8399014699308178,
+          "n": 79,
+          "time": 0.0006940485555914384
+        },
+        "full": {
+          "psnr": 26.296415570416027,
+          "ssim": 0.8429959597466867,
+          "n": 79,
+          "time": 0.0015084592601920985
+        }
+      },
+      "7.0": {
+        "baseline": {
+          "psnr": 24.533826489991778,
+          "ssim": 0.8050373981270609,
+          "n": 79,
+          "time": 0.0008343050751505018
+        },
+        "linear": {
+          "psnr": 27.139394760131836,
+          "ssim": 0.8645856380462646,
+          "n": 79,
+          "time": 0.0013474241087708292
+        },
+        "importance_only": {
+          "psnr": 26.419091550609732,
+          "ssim": 0.8490509986877441,
+          "n": 79,
+          "time": 0.001714968983131119
+        },
+        "snr_only": {
+          "psnr": 27.714533890349955,
+          "ssim": 0.8750943556616578,
+          "n": 79,
+          "time": 0.0007372023184088212
+        },
+        "full": {
+          "psnr": 27.776646698577494,
+          "ssim": 0.8775176172015033,
+          "n": 79,
+          "time": 0.0016614364672310744
+        }
+      },
+      "10.0": {
+        "baseline": {
+          "psnr": 24.851584591443025,
+          "ssim": 0.8178123099894463,
+          "n": 79,
+          "time": 0.0008259061016613924
+        },
+        "linear": {
+          "psnr": 28.017619434791275,
+          "ssim": 0.8843819921529745,
+          "n": 79,
+          "time": 0.001375566554974906
+        },
+        "importance_only": {
+          "psnr": 27.173655159865753,
+          "ssim": 0.8693456491337547,
+          "n": 79,
+          "time": 0.0017793963227090957
+        },
+        "snr_only": {
+          "psnr": 28.75606413732601,
+          "ssim": 0.8955901393407508,
+          "n": 79,
+          "time": 0.0007457884052131749
+        },
+        "full": {
+          "psnr": 28.79445713381224,
+          "ssim": 0.8976145054720626,
+          "n": 79,
+          "time": 0.0017131401013724412
+        }
+      },
+      "13.0": {
+        "baseline": {
+          "psnr": 25.019683186011978,
+          "ssim": 0.8245360096798667,
+          "n": 79,
+          "time": 0.0008189014241665225
+        },
+        "linear": {
+          "psnr": 28.552563389645346,
+          "ssim": 0.8952141351337675,
+          "n": 79,
+          "time": 0.0013167646866810473
+        },
+        "importance_only": {
+          "psnr": 27.617412518851364,
+          "ssim": 0.8803567554377303,
+          "n": 79,
+          "time": 0.00169687331477298
+        },
+        "snr_only": {
+          "psnr": 29.40270544607428,
+          "ssim": 0.9068662644941595,
+          "n": 79,
+          "time": 0.0007272521151772028
+        },
+        "full": {
+          "psnr": 29.42057720618912,
+          "ssim": 0.9086890009385121,
+          "n": 79,
+          "time": 0.001650088950048519
+        }
+      }
+    }
+  },
+  "channel_context": {
+    "1.0": {
+      "1.0": {
+        "gamma_eff_db": {
+          "mean_of_means": 1.0000001192092896,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0000001192092896,
+          "global_max": 1.0000001192092896
+        },
+        "gamma_eff_norm": {
+          "mean_of_means": 0.0,
+          "mean_of_stds": 0.0,
+          "global_min": 0.0,
+          "global_max": 0.0
+        },
+        "h_abs2": {
+          "mean_of_means": 1.0,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0,
+          "global_max": 1.0
+        },
+        "posteq_noise_var": {
+          "mean_of_means": 0.7943282127380371,
+          "mean_of_stds": 0.0,
+          "global_min": 0.7943282127380371,
+          "global_max": 0.7943282127380371
+        },
+        "eq_quality": {
+          "mean_of_means": 1.258925437927246,
+          "mean_of_stds": 0.0,
+          "global_min": 1.258925437927246,
+          "global_max": 1.258925437927246
+        },
+        "channel_type": "awgn",
+        "fading_equalize": false
+      },
+      "4.0": {
+        "gamma_eff_db": {
+          "mean_of_means": 3.999999761581421,
+          "mean_of_stds": 0.0,
+          "global_min": 3.999999761581421,
+          "global_max": 3.999999761581421
+        },
+        "gamma_eff_norm": {
+          "mean_of_means": 0.0,
+          "mean_of_stds": 0.0,
+          "global_min": 0.0,
+          "global_max": 0.0
+        },
+        "h_abs2": {
+          "mean_of_means": 1.0,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0,
+          "global_max": 1.0
+        },
+        "posteq_noise_var": {
+          "mean_of_means": 0.3981071412563324,
+          "mean_of_stds": 0.0,
+          "global_min": 0.3981071412563324,
+          "global_max": 0.3981071412563324
+        },
+        "eq_quality": {
+          "mean_of_means": 2.5118865966796875,
+          "mean_of_stds": 0.0,
+          "global_min": 2.5118865966796875,
+          "global_max": 2.5118865966796875
+        },
+        "channel_type": "awgn",
+        "fading_equalize": false
+      },
+      "7.0": {
+        "gamma_eff_db": {
+          "mean_of_means": 7.000000476837158,
+          "mean_of_stds": 0.0,
+          "global_min": 7.000000476837158,
+          "global_max": 7.000000476837158
+        },
+        "gamma_eff_norm": {
+          "mean_of_means": 0.0,
+          "mean_of_stds": 0.0,
+          "global_min": 0.0,
+          "global_max": 0.0
+        },
+        "h_abs2": {
+          "mean_of_means": 1.0,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0,
+          "global_max": 1.0
+        },
+        "posteq_noise_var": {
+          "mean_of_means": 0.19952623546123505,
+          "mean_of_stds": 0.0,
+          "global_min": 0.19952623546123505,
+          "global_max": 0.19952623546123505
+        },
+        "eq_quality": {
+          "mean_of_means": 5.011872291564941,
+          "mean_of_stds": 0.0,
+          "global_min": 5.011872291564941,
+          "global_max": 5.011872291564941
+        },
+        "channel_type": "awgn",
+        "fading_equalize": false
+      },
+      "10.0": {
+        "gamma_eff_db": {
+          "mean_of_means": 10.0,
+          "mean_of_stds": 0.0,
+          "global_min": 10.0,
+          "global_max": 10.0
+        },
+        "gamma_eff_norm": {
+          "mean_of_means": 0.0,
+          "mean_of_stds": 0.0,
+          "global_min": 0.0,
+          "global_max": 0.0
+        },
+        "h_abs2": {
+          "mean_of_means": 1.0,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0,
+          "global_max": 1.0
+        },
+        "posteq_noise_var": {
+          "mean_of_means": 0.09999999403953552,
+          "mean_of_stds": 0.0,
+          "global_min": 0.09999999403953552,
+          "global_max": 0.09999999403953552
+        },
+        "eq_quality": {
+          "mean_of_means": 10.000000953674316,
+          "mean_of_stds": 0.0,
+          "global_min": 10.000000953674316,
+          "global_max": 10.000000953674316
+        },
+        "channel_type": "awgn",
+        "fading_equalize": false
+      },
+      "13.0": {
+        "gamma_eff_db": {
+          "mean_of_means": 13.0,
+          "mean_of_stds": 0.0,
+          "global_min": 13.0,
+          "global_max": 13.0
+        },
+        "gamma_eff_norm": {
+          "mean_of_means": 0.0,
+          "mean_of_stds": 0.0,
+          "global_min": 0.0,
+          "global_max": 0.0
+        },
+        "h_abs2": {
+          "mean_of_means": 1.0,
+          "mean_of_stds": 0.0,
+          "global_min": 1.0,
+          "global_max": 1.0
+        },
+        "posteq_noise_var": {
+          "mean_of_means": 0.05011872202157974,
+          "mean_of_stds": 0.0,
+          "global_min": 0.05011872202157974,
+          "global_max": 0.05011872202157974
+        },
+        "eq_quality": {
+          "mean_of_means": 19.95262336730957,
+          "mean_of_stds": 0.0,
+          "global_min": 19.95262336730957,
+          "global_max": 19.95262336730957
+        },
+        "channel_type": "awgn",
+        "fading_equalize": false
+      }
+    }
+  }
+}
