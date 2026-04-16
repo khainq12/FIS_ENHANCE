@@ -52,6 +52,43 @@ def compute_rule_usage(model, loader, device, snr, budget, mode):
     return result
 
 
+def compute_control_stats(model, loader, device, snr, budget, mode, max_batches: int = 8):
+    model.eval()
+    agg = {
+        "A_std": 0.0,
+        "A_range": 0.0,
+        "I_A_corr": 0.0,
+        "channel_rel_mean": 0.0,
+        "delta_mean": 0.0,
+        "score_abs_mean": 0.0,
+    }
+    count = 0
+    with torch.no_grad():
+        for bidx, (x, _) in enumerate(loader):
+            if max_batches is not None and bidx >= max_batches:
+                break
+            x = x.to(device)
+            _, _, info = model(x, snr=snr, budget=budget, mode=mode, return_info=True)
+            if "A_std" in info:
+                agg["A_std"] += float(info["A_std"].mean().item())
+            if "A_range" in info:
+                agg["A_range"] += float(info["A_range"].mean().item())
+            if "I_A_corr" in info:
+                agg["I_A_corr"] += float(info["I_A_corr"].mean().item())
+            if "channel_rel_mean" in info:
+                agg["channel_rel_mean"] += float(info["channel_rel_mean"].mean().item())
+            elif "channel_ctx" in info and "channel_rel" in info["channel_ctx"]:
+                agg["channel_rel_mean"] += float(info["channel_ctx"]["channel_rel"].float().mean().item())
+            if "delta_map" in info:
+                agg["delta_mean"] += float(info["delta_map"].mean().item())
+            if "score_map" in info:
+                agg["score_abs_mean"] += float(info["score_map"].abs().mean().item())
+            count += 1
+    if count == 0:
+        return {k: 0.0 for k in agg}
+    return {k: v / count for k, v in agg.items()}
+
+
 def set_requires_grad(module: nn.Module, flag: bool) -> None:
     for p in module.parameters():
         p.requires_grad = flag
@@ -146,7 +183,14 @@ def main():
                     help="Number of epochs to train controller only after loading baseline_ckpt.")
     ap.add_argument("--finetune_lr", type=float, default=1e-5,
                     help="Learning rate used after unfreezing the full model.")
+    ap.add_argument("--snr_only_use_baseline_backbone", action="store_true",
+                    help="If mode=snr_only and baseline_ckpt is given, export a no-op controller on top of the baseline backbone without extra training.")
     args = ap.parse_args()
+    if args.mode == "snr_only" and args.baseline_ckpt and not args.snr_only_use_baseline_backbone:
+        args.snr_only_use_baseline_backbone = True
+        print("[INFO] mode=snr_only with baseline_ckpt detected -> auto-enabling no-op export from the baseline backbone.")
+    if args.mode == "snr_only" and not args.snr_only_use_baseline_backbone:
+        print("[WARN] snr_only without --snr_only_use_baseline_backbone will train a separate backbone and can confound the ablation.")
 
     os.makedirs(args.save_dir, exist_ok=True)
     if args.mode == "snr_only":
@@ -211,6 +255,7 @@ def main():
         "baseline_ckpt": args.baseline_ckpt,
         "warmstart_controller_only_epochs": args.warmstart_controller_only_epochs,
         "finetune_lr": args.finetune_lr,
+        "snr_only_use_baseline_backbone": bool(args.snr_only_use_baseline_backbone),
     }
     with open(os.path.join(args.save_dir, "run_config.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
@@ -228,6 +273,29 @@ def main():
 
     if args.baseline_ckpt:
         model = load_backbone_from_baseline(model, args.baseline_ckpt, device)
+
+    if args.mode == "snr_only" and args.baseline_ckpt and args.snr_only_use_baseline_backbone:
+        print("[snr_only] Exporting a no-op controller on top of the baseline backbone. No extra training will be performed.")
+        psnr_avg = evaluate_multi_snr(
+            model,
+            test_loader,
+            device,
+            snr_list=eval_snr_list,
+            budget=args.budget,
+            mode=args.mode,
+            channel=args.channel,
+            rician_k=args.rician_k,
+        )
+        torch.save(model.state_dict(), os.path.join(args.save_dir, "fis_power_best.pth"))
+        with open(os.path.join(args.save_dir, "rule_usage_best.json"), "w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2)
+        snr_diag = float(sum(eval_snr_list) / len(eval_snr_list))
+        ctrl_stats = compute_control_stats(model, test_loader, device, snr=snr_diag, budget=args.budget, mode=args.mode)
+        with open(os.path.join(args.save_dir, "control_stats_best.json"), "w", encoding="utf-8") as f:
+            json.dump(ctrl_stats, f, indent=2)
+        print(f"[snr_only] mean PSNR over {eval_snr_list} dB = {psnr_avg:.3f}")
+        print(f"[snr_only] control stats @ {snr_diag:.2f} dB: {ctrl_stats}")
+        return
 
     # ── Check controller params ──
     # FIS controller is fully rule-based (torch.tensor, not nn.Parameter),
@@ -313,6 +381,12 @@ def main():
             )
             with open(os.path.join(args.save_dir, "rule_usage_best.json"), "w", encoding="utf-8") as f:
                 json.dump(rule_usage, f, indent=2)
+            ctrl_stats = compute_control_stats(
+                model, test_loader, device, snr=snr_diag, budget=args.budget, mode=args.mode
+            )
+            with open(os.path.join(args.save_dir, "control_stats_best.json"), "w", encoding="utf-8") as f:
+                json.dump(ctrl_stats, f, indent=2)
+            print(f"    control_stats @ {snr_diag:.2f} dB: {ctrl_stats}")
 
         torch.save(model.state_dict(), os.path.join(args.save_dir, f"fis_power_ep{ep:03d}.pth"))
         print(

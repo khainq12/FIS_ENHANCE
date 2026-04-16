@@ -42,6 +42,25 @@ def _mean_normalize(A: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return A / m
 
 
+def _safe_corr_2d(x: torch.Tensor, y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Per-sample Pearson-style correlation over spatial maps."""
+    x = x - x.mean(dim=(1, 2), keepdim=True)
+    y = y - y.mean(dim=(1, 2), keepdim=True)
+    num = (x * y).mean(dim=(1, 2))
+    den = x.pow(2).mean(dim=(1, 2)).sqrt() * y.pow(2).mean(dim=(1, 2)).sqrt()
+    return num / den.clamp_min(eps)
+
+
+def _summary_stats_map(x: torch.Tensor) -> dict:
+    return {
+        "mean": x.mean(dim=(1, 2)),
+        "std": x.std(dim=(1, 2), unbiased=False),
+        "min": x.amin(dim=(1, 2)),
+        "max": x.amax(dim=(1, 2)),
+        "range": x.amax(dim=(1, 2)) - x.amin(dim=(1, 2)),
+    }
+
+
 # ----------------------------
 # Membership functions
 # ----------------------------
@@ -304,7 +323,13 @@ class FIS_PowerAllocation(nn.Module):
         if not return_rules:
             return A
         rule_id = torch.argmax(rules, dim=1)
-        return A, rule_id, rules
+        aux = {
+            "score": score.detach(),
+            "delta": delta.detach(),
+            "channel_rel_map": C.detach(),
+            "channel_rel_mean": c_bar.detach().flatten(),
+        }
+        return A, rule_id, rules, aux
 
 
 class FIS_SpatialPowerController(nn.Module):
@@ -382,8 +407,15 @@ class FIS_SpatialPowerController(nn.Module):
             A = torch.ones((z.shape[0], z.shape[2], z.shape[3]), device=z.device, dtype=z.dtype)
             if not return_info:
                 return A
+            a_stats = _summary_stats_map(A)
             info["I"] = I
             info["A"] = A
+            info["A_mean"] = a_stats["mean"]
+            info["A_std"] = a_stats["std"]
+            info["A_range"] = a_stats["range"]
+            info["A_min"] = a_stats["min"]
+            info["A_max"] = a_stats["max"]
+            info["I_A_corr"] = _safe_corr_2d(I, A, eps=self.eps)
             info["snr_only_noop"] = torch.tensor(1.0, device=z.device, dtype=z.dtype)
             if channel_rel is not None:
                 info["channel_rel"] = channel_rel
@@ -413,8 +445,15 @@ class FIS_SpatialPowerController(nn.Module):
             A = _mean_normalize(A, eps=self.eps)
             if not return_info:
                 return A
+            a_stats = _summary_stats_map(A)
             info["A_raw"] = score
             info["A"] = A
+            info["A_mean"] = a_stats["mean"]
+            info["A_std"] = a_stats["std"]
+            info["A_range"] = a_stats["range"]
+            info["A_min"] = a_stats["min"]
+            info["A_max"] = a_stats["max"]
+            info["I_A_corr"] = _safe_corr_2d(I, A, eps=self.eps)
             if channel_rel is not None:
                 info["channel_rel"] = channel_rel
             return A, info
@@ -423,18 +462,29 @@ class FIS_SpatialPowerController(nn.Module):
         channel_rel_use = None if mode == "importance_only" else channel_rel
 
         if return_info:
-            A, rid2, rs2 = self.pow(
+            A, rid2, rs2, aux2 = self.pow(
                 I,
                 snr_use,
                 budget=budget,
                 channel_rel=channel_rel_use,
                 return_rules=True,
             )
+            a_stats = _summary_stats_map(A)
             info.update({
                 "A": A,
+                "A_mean": a_stats["mean"],
+                "A_std": a_stats["std"],
+                "A_range": a_stats["range"],
+                "A_min": a_stats["min"],
+                "A_max": a_stats["max"],
+                "I_A_corr": _safe_corr_2d(I, A, eps=self.eps),
                 "rule2_id": rid2,
                 "rule2_strength": rs2,
                 "rule2_balance_loss": self._rule_balance_loss(rs2, eps=self.eps),
+                "score_map": aux2["score"],
+                "delta_map": aux2["delta"],
+                "channel_rel_map": aux2["channel_rel_map"],
+                "channel_rel_mean": aux2["channel_rel_mean"],
             })
             if channel_rel_use is not None:
                 info["channel_rel"] = channel_rel_use
