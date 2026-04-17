@@ -13,6 +13,7 @@
 
 # # 3. Commit
 # git commit -m "Add run_all.sh, fix diagnose_controller, add paper sims"
+#GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519" git push -u origin feature/fis-channel-aware-controller-r2
 
 # # 4. Push
 # git push -u origin feature/fis-channel-aware-controller-r2
