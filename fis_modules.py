@@ -183,6 +183,7 @@ class FIS_PowerAllocation(nn.Module):
         rule_floor: float = 0.05,
         score_scale: float = 2.0,
         eps: float = 1e-8,
+
     ):
         super().__init__()
         self.a_min = float(a_min)
@@ -196,7 +197,7 @@ class FIS_PowerAllocation(nn.Module):
         self.rule_floor = float(rule_floor)
         self.score_scale = float(score_scale)
         self.eps = eps
-
+        self.beta = nn.Parameter(torch.tensor(0.5, dtype=torch.float32))
         # Consequents for the 6 channel-aware rules below.
         # Positive -> allocate more, negative -> allocate less.
         # Rule order:
@@ -207,7 +208,9 @@ class FIS_PowerAllocation(nn.Module):
         # 4: medium-I & medium/high reliability
         # 5: low-I (all reliability levels merged)
         # self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
-        self.c = nn.Parameter(torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35]))
+        # self.c = [+0.95, +0.60, +0.18, +0.35, +0.02, -0.35]
+#          r0     r1     r2     r3     r4     r5
+        self.c = nn.Parameter(torch.tensor([+0.95, +0.95, +0.95, +0.35, +0.02, -0.35]))
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
         s = max(0.0, min(1.0, s))
@@ -297,16 +300,21 @@ class FIS_PowerAllocation(nn.Module):
         rules_raw = torch.stack([r0, r1, r2, r3, r4, r5], dim=1)
         rules = self._normalize_rules(rules_raw)
 
+        # ★ THÊM: đường thẳng từ I
+        score_I = I - I.mean(dim=(1, 2), keepdim=True)
+
         c = self.c.to(I.device, I.dtype).view(1, -1, 1, 1)
-        score = (rules * c).sum(dim=1)
-        score = score - score.mean(dim=(1, 2), keepdim=True)
+        score_fuzzy = (rules * c).sum(dim=1)                    # đổi tên
+        score_fuzzy = score_fuzzy - score_fuzzy.mean(dim=(1, 2), keepdim=True)  # đổi tên
+
+        # ★ THÊM: kết hợp
+        beta = torch.sigmoid(self.beta)
+        score = (1.0 - beta) * score_I + beta * score_fuzzy     # ★ DÒNG MỚI
         score = self.score_scale * score
 
         delta = self._delta_from_context(float(s), C, mix=0.6)
 
         # Good-channel attenuation:
-        # when the effective channel reliability is already very high, strong
-        # redistribution is often unnecessary and can hurt AWGN performance.
         c_bar = C.mean(dim=(1, 2), keepdim=True)
         good_gate = torch.clamp((c_bar - 0.90) / 0.10, 0.0, 1.0)
         delta = delta * (1.0 - 0.2 * good_gate)
