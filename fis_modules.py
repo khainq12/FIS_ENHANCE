@@ -206,8 +206,8 @@ class FIS_PowerAllocation(nn.Module):
         # 3: medium-I & low-reliability
         # 4: medium-I & medium/high reliability
         # 5: low-I (all reliability levels merged)
-        self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
-
+        # self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
+        self.c = nn.Parameter(torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35]))
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
         s = max(0.0, min(1.0, s))
@@ -308,8 +308,8 @@ class FIS_PowerAllocation(nn.Module):
         # when the effective channel reliability is already very high, strong
         # redistribution is often unnecessary and can hurt AWGN performance.
         c_bar = C.mean(dim=(1, 2), keepdim=True)
-        good_gate = torch.clamp((c_bar - 0.85) / 0.15, 0.0, 1.0)
-        delta = delta * (1.0 - 0.8 * good_gate)
+        good_gate = torch.clamp((c_bar - 0.90) / 0.10, 0.0, 1.0)
+        delta = delta * (1.0 - 0.2 * good_gate)
 
         amp = delta
 
@@ -363,7 +363,8 @@ class FIS_SpatialPowerController(nn.Module):
             snr_max_db=snr_max_db,
             eps=eps,
         )
-        self.alpha_linear = float(alpha_linear)
+        # self.alpha_linear = float(alpha_linear)
+        self.alpha_linear = nn.Parameter(torch.tensor(alpha_linear))
         self.a_min = float(a_min)
         self.a_high = float(a_high)
         self.snr_min_db = float(snr_min_db)
