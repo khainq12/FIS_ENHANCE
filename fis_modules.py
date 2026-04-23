@@ -324,6 +324,13 @@ class FIS_PowerAllocation(nn.Module):
         A_fis = torch.exp(amp * torch.tanh(score))
         A_fis = A_fis.clamp(min=self.a_min, max=self.a_high)
 
+        # Soft bypass: kênh tốt (channel_rel≈1) → A → ones (giống baseline)
+        c_bar = C.mean(dim=(1, 2), keepdim=True)
+        bypass = torch.clamp((c_bar - 0.95) / 0.05, 0.0, 1.0)
+        A_fis = (1.0 - bypass) * A_fis + bypass * torch.ones_like(A_fis)
+
+        # Budget interpolation: R=0 -> uniform, R=1 -> full redistribution.
+
         # Budget interpolation: R=0 -> uniform, R=1 -> full redistribution.
         A = float(budget) * A_fis + (1.0 - float(budget))
         A = _mean_normalize(A, eps=self.eps)
@@ -402,16 +409,11 @@ class FIS_SpatialPowerController(nn.Module):
         mode = str(mode).lower()
 
         if mode == "snr_only":
-            # IMPORTANT:
-            # Under the current architecture, the controller can only build a
-            # spatial power map A(i,j). However, the available channel context
-            # is a block-level reliability scalar per sample. After expansion,
-            # that scalar is spatially constant, so any "SNR-only" spatial map
-            # would collapse to A = 1 after mean normalization.
-            #
-            # Therefore, snr_only is intentionally kept as an identity spatial
-            # controller. It is useful only as a diagnostic ablation / no-control
-            # reference and must not be interpreted as true SNR-aware allocation.
+            # ── no_control diagnostic ──
+            # Block-fading: channel_rel là scalar (B,1,1,1) broadcast sang
+            # spatial map → A spatial-flat → power_normalize triệt tiêu hết.
+            # Không thể tạo "SNR-only global gain" trong kiến trúc hiện tại.
+            # Mode này = baseline reference, KHÔNG phải SNR-aware allocation.
             I = torch.full((z.shape[0], z.shape[2], z.shape[3]), 0.5, device=z.device, dtype=z.dtype)
             A = torch.ones((z.shape[0], z.shape[2], z.shape[3]), device=z.device, dtype=z.dtype)
             if not return_info:

@@ -98,7 +98,7 @@ class Channel(nn.Module):
         self.rician_k = float(rician_k)
         self.context_db_min = float(context_db_min)
         self.context_db_max = float(context_db_max)
-
+        self.h_abs2_min: float = 0.01
         self._fading_equalize: bool = False
         self._legacy_alias: set = {
             "rayleigh_legacy",
@@ -174,7 +174,8 @@ class Channel(nn.Module):
         yQ = yQ + sigma * torch.randn_like(yQ)
 
         if self._fading_equalize:
-            denom = (hI * hI + hQ * hQ).clamp_min(self.eps)
+            #denom = (hI * hI + hQ * hQ).clamp_min(self.eps)
+            denom = (hI * hI + hQ * hQ).clamp_min(self.h_abs2_min)
             xI_hat = (yI * hI + yQ * hQ) / denom
             xQ_hat = (yQ * hI - yI * hQ) / denom
             return torch.cat([xI_hat, xQ_hat], dim=1)
@@ -288,7 +289,9 @@ class Channel(nn.Module):
                 eq_rel = 1.0 / (1.0 + posteq_noise_var)
                 channel_rel = 0.6 * gamma_eff_norm + 0.4 * eq_rel
             else:
-                channel_rel = gamma_eff_norm
+                # channel_rel = normalized |h|² (chỉ fading, KHÔNG chứa SNR)
+                h_abs2_db = 10.0 * torch.log10(h_abs2.clamp_min(self.eps))
+                channel_rel = self._norm_db(h_abs2_db)
         else:
             channel_rel = gamma_eff_norm
 
@@ -363,8 +366,8 @@ class Channel(nn.Module):
             yI = yI + sigma * torch.randn_like(yI)
             yQ = yQ + sigma * torch.randn_like(yQ)
             if self._fading_equalize:
-                yI = yI / h0.clamp_min(self.eps)
-                yQ = yQ / h1.clamp_min(self.eps)
+                yI = yI / h0.clamp_min(self.h_abs2_min)
+                yQ = yQ / h1.clamp_min(self.h_abs2_min)
             return torch.cat([yI, yQ], dim=1)
 
         raise ValueError(
