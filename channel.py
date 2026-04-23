@@ -265,22 +265,28 @@ class Channel(nn.Module):
         # min-max normalization.
         gamma_eff_norm = self._norm_db(gamma_eff_db)
 
-        posteq_noise_var = noise_var / h_abs2.clamp_min(self.eps)
-        eq_quality = 1.0 / posteq_noise_var.clamp_min(self.eps)
+        noise_var_map = noise_var.view(1, 1, 1, 1).expand_as(h_abs2)
+
+        # Equalization-specific diagnostics must only be exposed when
+        # equalization is actually enabled. Otherwise EQ and no-EQ runs end up
+        # logging the same post-equalization statistics, which is misleading.
+        posteq_noise_var = None
+        eq_quality = None
+        if self._is_fading() and self._fading_equalize:
+            posteq_noise_var = noise_var_map / h_abs2.clamp_min(self.eps)
+            eq_quality = 1.0 / posteq_noise_var.clamp_min(self.eps)
 
         # Explicit channel reliability for the FIS controller.
-        # Use a fixed dB mapping so that reliability varies with both the
-        # nominal SNR and the instantaneous fading realization.
+        # no-EQ: reliability follows effective SNR directly.
+        # EQ: reliability must additionally reflect noise amplification after
+        # equalization, so we blend in an EQ-specific penalty term.
         if ct == "awgn":
             channel_rel = gamma_eff_norm
         elif self._is_fading():
             if self._fading_equalize:
-                # Equalization is especially brittle under deep fades, but the
-                # dominant signal for the controller is still the effective SNR.
-                # We blend a mild fade penalty into the fixed-bounds dB mapping.
-                fade_margin_db = 10.0 * torch.log10(h_abs2.clamp_min(self.eps))
-                fade_penalty = torch.sigmoid((fade_margin_db + 3.0) / 6.0)
-                channel_rel = 0.8 * gamma_eff_norm + 0.2 * fade_penalty
+                assert posteq_noise_var is not None
+                eq_rel = 1.0 / (1.0 + posteq_noise_var)
+                channel_rel = 0.6 * gamma_eff_norm + 0.4 * eq_rel
             else:
                 channel_rel = gamma_eff_norm
         else:
@@ -295,13 +301,17 @@ class Channel(nn.Module):
             "gamma_eff_norm": squeeze(gamma_eff_norm),
             "channel_rel": squeeze(channel_rel),
             "h_abs2": squeeze(h_abs2),
-            "posteq_noise_var": squeeze(posteq_noise_var),
-            "eq_quality": squeeze(eq_quality),
+            "noise_var": squeeze(noise_var_map),
             "channel_type": ct,
             "fading_equalize": torch.tensor(
                 float(self._fading_equalize), device=device, dtype=dtype
             ),
         }
+        if posteq_noise_var is not None:
+            ctx["posteq_noise_var"] = squeeze(posteq_noise_var)
+            ctx["eq_quality"] = squeeze(eq_quality)
+        else:
+            ctx["rx_noise_var"] = squeeze(noise_var_map)
         self.last_context = ctx
         return ctx
 

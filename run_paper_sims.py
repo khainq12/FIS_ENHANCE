@@ -16,18 +16,6 @@ from model import DeepJSCC_FIS, power_normalize
 from utils import get_psnr, simple_ssim
 
 
-def _normalize_loaded_state_dict(ckpt):
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        ckpt = ckpt["state_dict"]
-    if not isinstance(ckpt, dict):
-        raise TypeError("Checkpoint must contain a state_dict-like mapping.")
-    out = {}
-    for k, v in ckpt.items():
-        nk = k[7:] if isinstance(k, str) and k.startswith("module.") else k
-        out[nk] = v
-    return out
-
-
 def resolve_fis_ckpt_path(mode, channel, fis_ckpt_root, eq_tag="", fis_ckpt_map_json=""):
     if fis_ckpt_map_json:
         with open(fis_ckpt_map_json, "r", encoding="utf-8") as f:
@@ -49,9 +37,22 @@ def _clone_pending_fading(pending):
 
 def _ctx_stats(ctx):
     out = {}
-    for k in ["gamma_eff_db", "gamma_eff_norm", "h_abs2", "posteq_noise_var", "eq_quality"]:
+    keys = [
+        "gamma_eff_db",
+        "gamma_eff_norm",
+        "channel_rel",
+        "h_abs2",
+        "noise_var",
+        "rx_noise_var",
+        "posteq_noise_var",
+        "eq_quality",
+    ]
+    for k in keys:
         if k in ctx:
-            x = ctx[k].detach().float()
+            x = ctx[k].detach().float().reshape(-1)
+            x = x[torch.isfinite(x)]
+            if x.numel() == 0:
+                continue
             out[k] = {
                 "mean": float(x.mean().item()),
                 "std": float(x.std(unbiased=False).item()),
@@ -61,23 +62,6 @@ def _ctx_stats(ctx):
     out["channel_type"] = str(ctx.get("channel_type", ""))
     out["fading_equalize"] = bool(float(ctx.get("fading_equalize", torch.tensor(0.0)).item())) if torch.is_tensor(ctx.get("fading_equalize", None)) else bool(ctx.get("fading_equalize", False))
     return out
-
-
-def _merge_control_stats(acc, info):
-    if "A_std" in info:
-        acc["A_std"] += float(info["A_std"].mean().item())
-    if "A_range" in info:
-        acc["A_range"] += float(info["A_range"].mean().item())
-    if "I_A_corr" in info:
-        acc["I_A_corr"] += float(info["I_A_corr"].mean().item())
-    if "channel_rel_mean" in info:
-        acc["channel_rel_mean"] += float(info["channel_rel_mean"].mean().item())
-    elif "channel_ctx" in info and "channel_rel" in info["channel_ctx"]:
-        acc["channel_rel_mean"] += float(info["channel_ctx"]["channel_rel"].float().mean().item())
-    if "delta_map" in info:
-        acc["delta_mean"] += float(info["delta_map"].mean().item())
-    if "score_map" in info:
-        acc["score_abs_mean"] += float(info["score_map"].abs().mean().item())
 
 
 @torch.no_grad()
@@ -100,10 +84,6 @@ def eval_one(
     shared_channel.change_snr(snr_db)
 
     results = {m: {"psnr": 0.0, "ssim": 0.0, "n": 0, "time": 0.0} for m in modes}
-    control_logs = {
-        m: {"A_std": 0.0, "A_range": 0.0, "I_A_corr": 0.0, "channel_rel_mean": 0.0, "delta_mean": 0.0, "score_abs_mean": 0.0, "n": 0}
-        for m in modes if m != "baseline"
-    }
     ctx_logs = []
 
     for bidx, (x, _) in enumerate(loader):
@@ -141,16 +121,14 @@ def eval_one(
 
             t0 = time.time()
             z = fis_model.encoder(x)
-            A, info = fis_model.controller(
+            A = fis_model.controller(
                 z,
                 snr_db=snr_db,
                 budget=budget,
                 mode=mode,
-                channel_rel=ctx.get("channel_rel", ctx["gamma_eff_norm"]),
-                return_info=True,
+                channel_rel=ctx.get("channel_rel", ctx["gamma_eff_norm"]),  # ✅ ĐÚNG
+                return_info=False,
             )
-            _merge_control_stats(control_logs[mode], info)
-            control_logs[mode]["n"] += 1
             z_g = z * A.unsqueeze(1)
             z_tx = power_normalize(z_g, P=fis_model.P, eps=fis_model.eps)
             shared_channel._pending_fading = _clone_pending_fading(pending)
@@ -187,12 +165,7 @@ def eval_one(
         agg["channel_type"] = ctx_logs[0].get("channel_type", channel_type)
         agg["fading_equalize"] = bool(ctx_logs[0].get("fading_equalize", False))
 
-    control_agg = {}
-    for mode, stats in control_logs.items():
-        n = max(int(stats.pop("n", 0)), 1)
-        control_agg[mode] = {k: float(v / n) for k, v in stats.items()}
-
-    return results, agg, control_agg
+    return results, agg
 
 
 def main():
@@ -216,12 +189,7 @@ def main():
     ap.add_argument("--batch_size", type=int, default=128)
     ap.add_argument("--num_workers", type=int, default=2)
     ap.add_argument("--save_dir", type=str, default="paper_sims_out")
-    ap.add_argument("--snr_only_from_baseline", action="store_true",
-                    help="Treat snr_only as a no-op diagnostic using the baseline backbone instead of a separately trained ckpt.")
     args = ap.parse_args()
-    if "snr_only" in [m.strip().lower() for m in args.modes.split(",") if m.strip()] and args.baseline_ckpt and not args.snr_only_from_baseline:
-        args.snr_only_from_baseline = True
-        print("[INFO] snr_only detected -> auto-enabling baseline-backed no-op diagnostic in evaluation.")
 
     os.makedirs(args.save_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -253,28 +221,21 @@ def main():
     for mode in modes:
         if mode == "baseline":
             continue
+        ckpt_path = resolve_fis_ckpt_path(
+            mode=mode,
+            channel=args.channel,
+            fis_ckpt_root=args.fis_ckpt_root,
+            eq_tag=args.eq_tag,
+            fis_ckpt_map_json=args.fis_ckpt_map_json,
+        )
+        print("Loading:", ckpt_path)
         model = DeepJSCC_FIS(
             c=c, ratio=args.ratio, channel_type=args.channel, rician_k=args.rician_k
         ).to(device)
-        if mode == "snr_only" and args.snr_only_from_baseline:
-            print("Loading snr_only from baseline backbone (no-op diagnostic):", args.baseline_ckpt)
-            baseline_sd = _normalize_loaded_state_dict(torch.load(args.baseline_ckpt, map_location=device))
-            missing, unexpected = model.load_state_dict(baseline_sd, strict=False)
-            print("  strict=False load for snr_only baseline init | missing:", len(missing), "unexpected:", len(unexpected))
-            loaded_fis_paths[mode] = args.baseline_ckpt
-        else:
-            ckpt_path = resolve_fis_ckpt_path(
-                mode=mode,
-                channel=args.channel,
-                fis_ckpt_root=args.fis_ckpt_root,
-                eq_tag=args.eq_tag,
-                fis_ckpt_map_json=args.fis_ckpt_map_json,
-            )
-            print("Loading:", ckpt_path)
-            model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=True)
-            loaded_fis_paths[mode] = ckpt_path
+        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=True)
         model.eval()
         fis_models[mode] = model
+        loaded_fis_paths[mode] = ckpt_path
 
     snrs = args.snrs
     budgets = args.budgets if args.budgets is not None else [args.budget]
@@ -288,14 +249,13 @@ def main():
         "fis_ckpts": loaded_fis_paths,
         "results": {},
         "channel_context": {},
-        "control_stats": {},
     }
 
     for R in budgets:
         out_R = {}
         ctx_R = {}
         for snr in snrs:
-            res, ctx_stats, ctrl_stats = eval_one(
+            res, ctx_stats = eval_one(
                 baseline_model,
                 fis_models,
                 channel_type=args.channel,
@@ -309,7 +269,6 @@ def main():
             )
             out_R[str(snr)] = res
             ctx_R[str(snr)] = ctx_stats
-            out_R.setdefault("_control", {})[str(snr)] = ctrl_stats
             print(f"\n=== R={R} | SNR={snr} ===")
             for m in modes:
                 print(
@@ -319,10 +278,8 @@ def main():
             if ctx_stats:
                 gedb = ctx_stats.get("gamma_eff_db", {})
                 print(f"channel_ctx gamma_eff_db mean={gedb.get('mean_of_means', float('nan')):.3f} std={gedb.get('mean_of_stds', float('nan')):.3f}")
-        control_R = out_R.pop("_control", {})
         all_out["results"][str(R)] = out_R
         all_out["channel_context"][str(R)] = ctx_R
-        all_out["control_stats"][str(R)] = control_R
 
     out_path = os.path.join(args.save_dir, "paper_sims_results.json")
     with open(out_path, "w", encoding="utf-8") as f:

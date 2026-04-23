@@ -1,0 +1,177 @@
+\begin{table}[h]
+\centering
+\caption{AWGN PSNR}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 23.99 & 24.36 & \textbf{24.36} & 24.00 & 24.36 \\
+4.0 & 26.11 & \textbf{26.41} & 26.40 & 26.11 & 26.40 \\
+7.0 & 27.74 & \textbf{27.99} & 27.98 & 27.74 & 27.98 \\
+10.0 & 28.86 & \textbf{29.08} & 29.07 & 28.86 & 29.06 \\
+13.0 & 29.54 & \textbf{29.76} & 29.74 & 29.54 & 29.73 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{AWGN SSIM}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.771 & 0.785 & \textbf{0.785} & 0.771 & 0.785 \\
+4.0 & 0.835 & \textbf{0.844} & 0.844 & 0.835 & 0.844 \\
+7.0 & 0.875 & \textbf{0.880} & 0.880 & 0.875 & 0.880 \\
+10.0 & 0.897 & \textbf{0.901} & 0.900 & 0.897 & 0.900 \\
+13.0 & 0.909 & \textbf{0.911} & 0.911 & 0.909 & 0.911 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{AWGN TIME}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.0116 & 0.0203 & \textbf{0.0329} & 0.0157 & 0.0280 \\
+4.0 & 0.0050 & 0.0166 & \textbf{0.0265} & 0.0118 & 0.0246 \\
+7.0 & 0.0037 & 0.0153 & \textbf{0.0190} & 0.0080 & 0.0188 \\
+10.0 & 0.0038 & 0.0129 & \textbf{0.0196} & 0.0084 & 0.0184 \\
+13.0 & 0.0040 & 0.0130 & 0.0238 & 0.0139 & \textbf{0.0279} \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{AWGN PSNR Gain over Baseline}
+\begin{tabular}{c|cccc}
+\hline
+SNR & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & +0.36 & +0.37 & +0.00 & +0.36 \\
+4.0 & +0.30 & +0.29 & +0.00 & +0.29 \\
+7.0 & +0.25 & +0.24 & +0.00 & +0.24 \\
+10.0 & +0.23 & +0.21 & +0.00 & +0.21 \\
+13.0 & +0.21 & +0.20 & +0.00 & +0.19 \\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}[h]
+\centering
+\caption{Rayleigh_EQ PSNR}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 19.52 & 20.90 & \textbf{20.91} & 19.49 & 20.91 \\
+4.0 & 21.02 & 22.27 & 22.27 & 21.00 & \textbf{22.27} \\
+7.0 & 22.33 & 23.45 & 23.45 & 22.30 & \textbf{23.45} \\
+10.0 & 23.37 & 24.39 & 24.39 & 23.35 & \textbf{24.40} \\
+13.0 & 24.12 & 25.07 & 25.08 & 24.11 & \textbf{25.08} \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_EQ SSIM}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.635 & 0.680 & 0.680 & 0.635 & \textbf{0.680} \\
+4.0 & 0.688 & 0.723 & 0.723 & 0.687 & \textbf{0.723} \\
+7.0 & 0.726 & \textbf{0.756} & 0.756 & 0.726 & 0.756 \\
+10.0 & 0.753 & \textbf{0.779} & 0.778 & 0.753 & 0.778 \\
+13.0 & 0.771 & \textbf{0.794} & 0.794 & 0.771 & 0.794 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_EQ TIME}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.0110 & 0.0142 & \textbf{0.0213} & 0.0104 & 0.0202 \\
+4.0 & 0.0043 & 0.0120 & 0.0234 & 0.0116 & \textbf{0.0241} \\
+7.0 & 0.0046 & 0.0170 & \textbf{0.0316} & 0.0157 & 0.0294 \\
+10.0 & 0.0046 & 0.0148 & \textbf{0.0300} & 0.0157 & 0.0296 \\
+13.0 & 0.0043 & 0.0153 & \textbf{0.0294} & 0.0146 & 0.0285 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_EQ PSNR Gain over Baseline}
+\begin{tabular}{c|cccc}
+\hline
+SNR & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & +1.39 & +1.39 & -0.03 & +1.39 \\
+4.0 & +1.25 & +1.25 & -0.03 & +1.25 \\
+7.0 & +1.12 & +1.12 & -0.03 & +1.12 \\
+10.0 & +1.02 & +1.03 & -0.02 & +1.03 \\
+13.0 & +0.96 & +0.96 & -0.01 & +0.97 \\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}[h]
+\centering
+\caption{Rayleigh_noEQ PSNR}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 20.44 & 20.58 & \textbf{20.60} & 20.40 & 20.58 \\
+4.0 & 21.77 & 22.00 & \textbf{22.02} & 21.73 & 22.00 \\
+7.0 & 22.83 & 23.18 & \textbf{23.19} & 22.79 & 23.17 \\
+10.0 & 23.59 & 24.05 & \textbf{24.06} & 23.57 & 24.05 \\
+13.0 & 24.10 & 24.65 & \textbf{24.65} & 24.09 & 24.65 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_noEQ SSIM}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.660 & 0.666 & \textbf{0.666} & 0.660 & 0.666 \\
+4.0 & 0.706 & 0.713 & \textbf{0.713} & 0.706 & 0.713 \\
+7.0 & 0.738 & \textbf{0.747} & 0.747 & 0.738 & 0.747 \\
+10.0 & 0.759 & \textbf{0.769} & 0.769 & 0.759 & 0.769 \\
+13.0 & 0.772 & \textbf{0.783} & 0.783 & 0.772 & 0.783 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_noEQ TIME}
+\begin{tabular}{c|ccccc}
+\hline
+SNR & Baseline & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & 0.0106 & 0.0146 & 0.0278 & 0.0153 & \textbf{0.0315} \\
+4.0 & 0.0047 & 0.0158 & 0.0265 & 0.0130 & \textbf{0.0268} \\
+7.0 & 0.0053 & 0.0156 & 0.0267 & 0.0128 & \textbf{0.0289} \\
+10.0 & 0.0037 & 0.0125 & 0.0270 & 0.0150 & \textbf{0.0293} \\
+13.0 & 0.0039 & 0.0146 & 0.0246 & 0.0127 & \textbf{0.0251} \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Rayleigh_noEQ PSNR Gain over Baseline}
+\begin{tabular}{c|cccc}
+\hline
+SNR & Linear & Importance & SNR-only & Full \\ \hline
+1.0 & +0.14 & +0.16 & -0.04 & +0.14 \\
+4.0 & +0.23 & +0.25 & -0.04 & +0.23 \\
+7.0 & +0.35 & +0.36 & -0.03 & +0.34 \\
+10.0 & +0.46 & +0.47 & -0.02 & +0.46 \\
+13.0 & +0.55 & +0.56 & -0.01 & +0.55 \\
+\hline
+\end{tabular}
+\end{table}
