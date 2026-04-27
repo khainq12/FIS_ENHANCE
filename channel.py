@@ -4,23 +4,24 @@ Channel models with optional transmitter-side fading context.
 
 Patch focus
 -----------
-This version fixes two issues in the branch
-`feature/fis-channel-aware-controller-r2`:
+This version fixes three issues:
 
 1) `gamma_eff_norm` was computed with `per_batch_minmax(gamma_eff_db)` even
    though `gamma_eff_db` has shape (B,1,1,1). For each sample, min=max, so the
    normalization collapses to zero. That is why logged `gamma_eff_norm` became
    0 for all SNR points.
+   → FIX: use fixed dB normalization window `_norm_db()`.
 
-2) In fading/no-equalization mode, `channel_rel` was computed as
-   sigmoid((gamma_eff_db - self.snr_db)/10), which removes the nominal SNR
-   term because gamma_eff_db = self.snr_db + 10log10|h|^2. As a result,
-   `channel_rel` depended almost only on fading power and its mean stayed nearly
-   constant across SNR.
+2) In fading/no-equalization mode, `channel_rel` was using `gamma_eff_norm`
+   which mixes SNR and fading. The controller then receives redundant
+   information because SNR already controls the noise power.
+   → FIX: `channel_rel` now reflects ONLY fading quality via
+   `self._norm_db(10*log10(|h|²))`, separating it from nominal SNR.
 
-This patch uses a fixed dB normalization window for both `gamma_eff_norm` and
-`channel_rel`, so the context remains informative across SNR points and across
-channel realizations.
+3) `full ≈ linear` because block fading makes `channel_rel` spatially uniform,
+   so Layer-2 fuzzy rules only depend on importance I — same as linear.
+   → FIX in fis_modules.py: scale z by channel_rel before Layer-1 so that
+   importance I inherits spatial variation from channel conditioning.
 """
 from __future__ import annotations
 
@@ -139,6 +140,11 @@ class Channel(nn.Module):
         return torch.tensor(10.0 ** (self.snr_db / 10.0), device=device, dtype=dtype)
 
     def _norm_db(self, x_db: torch.Tensor) -> torch.Tensor:
+        """Normalize a dB value using a fixed window [context_db_min, context_db_max].
+
+        NOTE: Do NOT use per-sample min-max here. When the input is scalar per
+        sample (shape B,1,1,1), min == max and normalization collapses to 0.
+        """
         x = (x_db - self.context_db_min) / (
             self.context_db_max - self.context_db_min + self.eps
         )
@@ -261,36 +267,50 @@ class Channel(nn.Module):
 
         gamma_eff_db = 10.0 * torch.log10(gamma_eff_lin.clamp_min(self.eps))
 
-        # Fixed-bounds normalization in dB.
-        # Do NOT use per-sample min-max here because gamma_eff_db is scalar per
-        # sample with shape (B,1,1,1), which collapses to 0 under per-sample
-        # min-max normalization.
+        # ================================================================
+        # FIX BUG 1: Fixed-bounds normalization in dB.
+        # Do NOT use per-sample min-max here because gamma_eff_db is
+        # scalar per sample with shape (B,1,1,1), which collapses to 0.
+        # ================================================================
         gamma_eff_norm = self._norm_db(gamma_eff_db)
 
         noise_var_map = noise_var.view(1, 1, 1, 1).expand_as(h_abs2)
 
-        # Equalization-specific diagnostics must only be exposed when
-        # equalization is actually enabled. Otherwise EQ and no-EQ runs end up
-        # logging the same post-equalization statistics, which is misleading.
+        # Equalization-specific diagnostics
         posteq_noise_var = None
         eq_quality = None
         if self._is_fading() and self._fading_equalize:
             posteq_noise_var = noise_var_map / h_abs2.clamp_min(self.h_abs2_min)
             eq_quality = 1.0 / posteq_noise_var.clamp_min(self.eps)
 
-        # Explicit channel reliability for the FIS controller.
-        # no-EQ: reliability follows effective SNR directly.
-        # EQ: reliability must additionally reflect noise amplification after
-        # equalization, so we blend in an EQ-specific penalty term.
+        # ================================================================
+        # FIX BUG 1 (rewrite): channel_rel reflects ONLY fading quality.
+        #
+        # WHY: gamma_eff_norm = norm(snr_db + 10*log10|h|²) mixes SNR and
+        # fading. The controller already receives SNR as a separate input,
+        # so channel_rel should capture the fading quality ONLY.
+        #
+        # channel_rel = _norm_db(10*log10(|h|²)) depends purely on fading,
+        # separating it from nominal SNR which controls noise power.
+        # ================================================================
         if ct == "awgn":
-            channel_rel = gamma_eff_norm
+            # AWGN: no fading → channel always perfectly reliable
+            channel_rel = torch.ones(batch_size, device=device, dtype=dtype)
         elif self._is_fading():
             if self._fading_equalize:
+                # With equalizer: blend fading-only rel + EQ noise penalty
+                fading_rel = self._norm_db(10.0 * torch.log10(
+                    h_abs2.clamp_min(self.eps)
+                ))
                 assert posteq_noise_var is not None
                 eq_rel = 1.0 / (1.0 + posteq_noise_var)
-                channel_rel = 0.6 * gamma_eff_norm + 0.4 * eq_rel
+                channel_rel = 0.6 * fading_rel + 0.4 * eq_rel
             else:
-                channel_rel = gamma_eff_norm
+                # ★ FIX BUG 1: channel_rel = normalized |h|² ONLY
+                # Does NOT include SNR — SNR is already handled by noise power
+                channel_rel = self._norm_db(
+                    10.0 * torch.log10(h_abs2.clamp_min(self.eps))
+                )
         else:
             channel_rel = gamma_eff_norm
 
@@ -360,7 +380,7 @@ class Channel(nn.Module):
             C2 = C // 2
             xI, xQ = x[:, :C2], x[:, C2:]
             yI = xI * h0
-            yQ = xQ * h1
+            yQ = yQ * h1
             sigma = self._sigma(x.device, x.dtype)
             yI = yI + sigma * torch.randn_like(yI)
             yQ = yQ + sigma * torch.randn_like(yQ)

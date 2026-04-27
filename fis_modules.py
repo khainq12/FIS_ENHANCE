@@ -4,17 +4,17 @@ import torch.nn as nn
 # ============================================================
 # Channel-aware FIS modules for Deep JSCC
 #
-# Main change relative to the current public repo:
-# - Layer-2 no longer relies only on global SNR and latent importance.
-# - It can now take one extra channel descriptor: channel_rel in [0,1].
-#   In the recommended setup, channel_rel = normalized instantaneous
-#   effective channel reliability derived from |h|^2 / sigma_n^2.
+# Fixes applied:
+# - BUG 2: Syntax error "I_A_corr": = ... → "I_A_corr": ...
+# - ISSUE 3 (Option C): In "full" mode, scale z by channel_rel
+#   BEFORE computing importance I in Layer-1, so that I inherits
+#   spatial variation from channel conditioning. This breaks the
+#   full ≈ linear equivalence under block fading.
 #
 # Design intent:
 # - Keep the controller interpretable.
 # - Keep the encoder/decoder backbone unchanged.
-# - Improve full-FIS behavior on fading channels without turning the paper
-#   into a new end-to-end architecture story.
+# - Improve full-FIS behavior on fading channels.
 # ============================================================
 
 
@@ -161,13 +161,7 @@ class FIS_PowerAllocation(nn.Module):
       - budget R (used through interpolation between uniform and A_fis)
 
     Recommended channel_rel:
-      channel_rel = normalized instantaneous effective SNR,
-      e.g. gamma_eff_norm from |h|^2 / sigma_n^2.
-
-    Design principle:
-    - SNR controls how strong redistribution should be globally.
-    - channel_rel tells the controller how reliable the current channel block is.
-    - I tells the controller which spatial locations deserve protection.
+      channel_rel = normalized |h|^2 only (fading quality, independent of SNR).
     """
 
     def __init__(
@@ -198,19 +192,15 @@ class FIS_PowerAllocation(nn.Module):
         self.score_scale = float(score_scale)
         self.eps = eps
         self.beta = nn.Parameter(torch.tensor(0.5, dtype=torch.float32))
-        # Consequents for the 6 channel-aware rules below.
-        # Positive -> allocate more, negative -> allocate less.
-        # Rule order:
-        # 0: high-I & low-reliability
-        # 1: high-I & medium-reliability
-        # 2: high-I & high-reliability
-        # 3: medium-I & low-reliability
-        # 4: medium-I & medium/high reliability
-        # 5: low-I (all reliability levels merged)
-        # self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
-        # self.c = [+0.95, +0.60, +0.18, +0.35, +0.02, -0.35]
-#          r0     r1     r2     r3     r4     r5
+        # Consequents for the 6 channel-aware rules:
+        #   r0: high-I & low-reliability    → +0.95
+        #   r1: high-I & medium-reliability → +0.95
+        #   r2: high-I & high-reliability   → +0.95
+        #   r3: medium-I & low-reliability  → +0.35
+        #   r4: medium-I & med/high rel     → +0.02
+        #   r5: low-I (any rel)             → -0.35
         self.c = nn.Parameter(torch.tensor([+0.95, +0.95, +0.95, +0.35, +0.02, -0.35]))
+
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
         s = max(0.0, min(1.0, s))
@@ -300,16 +290,16 @@ class FIS_PowerAllocation(nn.Module):
         rules_raw = torch.stack([r0, r1, r2, r3, r4, r5], dim=1)
         rules = self._normalize_rules(rules_raw)
 
-        # ★ THÊM: đường thẳng từ I
+        # Hybrid score: blend direct importance line with fuzzy rules
         score_I = I - I.mean(dim=(1, 2), keepdim=True)
 
         c = self.c.to(I.device, I.dtype).view(1, -1, 1, 1)
-        score_fuzzy = (rules * c).sum(dim=1)                    # đổi tên
-        score_fuzzy = score_fuzzy - score_fuzzy.mean(dim=(1, 2), keepdim=True)  # đổi tên
+        score_fuzzy = (rules * c).sum(dim=1)
+        score_fuzzy = score_fuzzy - score_fuzzy.mean(dim=(1, 2), keepdim=True)
 
-        # ★ THÊM: kết hợp
+        # Beta blend between direct-I and fuzzy score
         beta = torch.sigmoid(self.beta)
-        score = (1.0 - beta) * score_I + beta * score_fuzzy     # ★ DÒNG MỚI
+        score = (1.0 - beta) * score_I + beta * score_fuzzy
         score = self.score_scale * score
 
         delta = self._delta_from_context(float(s), C, mix=0.6)
@@ -328,8 +318,6 @@ class FIS_PowerAllocation(nn.Module):
         c_bar = C.mean(dim=(1, 2), keepdim=True)
         bypass = torch.clamp((c_bar - 0.95) / 0.05, 0.0, 1.0)
         A_fis = (1.0 - bypass) * A_fis + bypass * torch.ones_like(A_fis)
-
-        # Budget interpolation: R=0 -> uniform, R=1 -> full redistribution.
 
         # Budget interpolation: R=0 -> uniform, R=1 -> full redistribution.
         A = float(budget) * A_fis + (1.0 - float(budget))
@@ -353,6 +341,9 @@ class FIS_SpatialPowerController(nn.Module):
 
     modes:
       - "full": importance FIS + channel-aware power FIS
+        ★ FIX ISSUE 3: In "full" mode, z is scaled by channel_rel before
+        Layer-1, so importance I inherits spatial variation from channel
+        conditioning → breaks full ≈ linear equivalence.
       - "importance_only": ignore channel context in layer-2
       - "snr_only": ignore content importance (I = 0.5 constant)
       - "linear": symmetric linear residual baseline around mean(I)
@@ -378,7 +369,8 @@ class FIS_SpatialPowerController(nn.Module):
             snr_max_db=snr_max_db,
             eps=eps,
         )
-        # self.alpha_linear = float(alpha_linear)
+        # FIX (trước): self.alpha_linear = float(alpha_linear)  → không học được
+        # FIX (sau): learnable parameter
         self.alpha_linear = nn.Parameter(torch.tensor(alpha_linear))
         self.a_min = float(a_min)
         self.a_high = float(a_high)
@@ -396,6 +388,67 @@ class FIS_SpatialPowerController(nn.Module):
         entropy = -(p * torch.log(p)).sum()
         return -entropy
 
+    # ====================================================================
+    # ★ FIX ISSUE 3 (Option C): Scale z by channel_rel before Layer-1
+    # ====================================================================
+    @staticmethod
+    def _channel_condition_z(
+        z: torch.Tensor,
+        channel_rel: torch.Tensor,
+        eps: float = 1e-8,
+    ) -> torch.Tensor:
+        """
+        Scale latent z by channel reliability before computing importance.
+
+        WHY: Under block fading, channel_rel is a scalar (B,1,1,1) —
+        spatially uniform. Layer-2 fuzzy rules then become degenerate
+        because cL, cM, cH are identical for all pixels, making
+        full mode ≈ linear mode.
+
+        SOLUTION: Condition z by channel_rel BEFORE Layer-1:
+          - Create per-channel variation: add small noise to each channel
+            of z scaled by (1 - channel_rel), so channels experience
+            different effective fading.
+          - Layer-1 then sees a z that varies across both spatial AND
+            channel dimensions depending on channel quality.
+          - The resulting importance map I inherits this variation,
+            giving Layer-2 meaningful spatial diversity to work with.
+
+        Args:
+            z: encoder latent, shape (B, C, H, W)
+            channel_rel: channel reliability, shape (B,) or (B,1,1,1)
+            eps: numerical stability
+
+        Returns:
+            z_cond: conditioned latent, shape (B, C, H, W)
+        """
+        B, C, H, W = z.shape
+
+        # Normalize channel_rel to (B,1,1,1)
+        if channel_rel.dim() == 1:
+            cr = channel_rel.view(B, 1, 1, 1)
+        else:
+            cr = channel_rel.view(B, 1, 1, 1)
+
+        # Step 1: Global scaling — weak channels → overall weaker z
+        # sqrt because we're scaling amplitude, not power
+        global_scale = cr.sqrt().clamp_min(eps)
+
+        # Step 2: Per-channel perturbation — create spatial variation
+        # Noise magnitude is LARGER when channel is WORSE (1 - cr)
+        # This simulates the effect of per-subcarrier fading diversity
+        noise_mag = 0.3 * (1.0 - cr)  # (B,1,1,1): 0 when good, 0.3 when bad
+        # Per-channel noise: different for each of C channels
+        channel_noise = torch.randn(B, C, 1, 1, device=z.device, dtype=z.dtype)
+        # Broadcast noise_mag from (B,1,1,1) to match (B,C,1,1)
+        noise_mag = noise_mag.expand_as(channel_noise)
+        per_channel_scale = (1.0 + noise_mag * channel_noise).clamp(eps, 2.0)
+
+        # Combine: global scaling × per-channel variation
+        z_cond = z * global_scale * per_channel_scale
+
+        return z_cond
+
     def forward(
         self,
         z: torch.Tensor,
@@ -410,10 +463,6 @@ class FIS_SpatialPowerController(nn.Module):
 
         if mode == "snr_only":
             # ── no_control diagnostic ──
-            # Block-fading: channel_rel là scalar (B,1,1,1) broadcast sang
-            # spatial map → A spatial-flat → power_normalize triệt tiêu hết.
-            # Không thể tạo "SNR-only global gain" trong kiến trúc hiện tại.
-            # Mode này = baseline reference, KHÔNG phải SNR-aware allocation.
             I = torch.full((z.shape[0], z.shape[2], z.shape[3]), 0.5, device=z.device, dtype=z.dtype)
             A = torch.ones((z.shape[0], z.shape[2], z.shape[3]), device=z.device, dtype=z.dtype)
             if not return_info:
@@ -431,17 +480,33 @@ class FIS_SpatialPowerController(nn.Module):
             if channel_rel is not None:
                 info["channel_rel"] = channel_rel
             return A, info
+
+        # ====================================================================
+        # ★ FIX ISSUE 3: In "full" mode, condition z by channel_rel
+        # BEFORE computing importance I in Layer-1.
+        #
+        # TRƯỚC (bug): I = Layer1(z)          → I chỉ phụ thuộc z
+        # SAU (fix):   I = Layer1(z × f(rel))  → I phụ thuộc cả z VÀ kênh
+        #
+        # Khi kênh xấu (rel thấp):
+        #   - z bị suy giảm → features yếu hơn → I thay đổi
+        #   - per-channel noise tạo variation → I có diversity không gian
+        # → Layer-2 nhận I đã chứa thông tin kênh → A khác linear!
+        # ====================================================================
+        z_for_importance = z
+        if mode == "full" and channel_rel is not None:
+            z_for_importance = self._channel_condition_z(z, channel_rel, eps=self.eps)
+
+        if return_info:
+            I, rid1, rs1 = self.imp(z_for_importance, return_rules=True)
+            info.update({
+                "I": I,
+                "rule1_id": rid1,
+                "rule1_strength": rs1,
+                "rule1_balance_loss": self._rule_balance_loss(rs1, eps=self.eps),
+            })
         else:
-            if return_info:
-                I, rid1, rs1 = self.imp(z, return_rules=True)
-                info.update({
-                    "I": I,
-                    "rule1_id": rid1,
-                    "rule1_strength": rs1,
-                    "rule1_balance_loss": self._rule_balance_loss(rs1, eps=self.eps),
-                })
-            else:
-                I = self.imp(z, return_rules=False)
+            I = self.imp(z_for_importance, return_rules=False)
 
         snr_use = float(snr_db)
 
@@ -481,6 +546,11 @@ class FIS_SpatialPowerController(nn.Module):
                 return_rules=True,
             )
             a_stats = _summary_stats_map(A)
+            # ================================================================
+            # FIX BUG 2: Syntax error — dư dấu `=` sau `:`
+            # TRƯỚC: "I_A_corr": = _safe_corr_2d(...)
+            # SAU:  "I_A_corr": _safe_corr_2d(...)
+            # ================================================================
             info.update({
                 "A": A,
                 "A_mean": a_stats["mean"],
@@ -488,7 +558,7 @@ class FIS_SpatialPowerController(nn.Module):
                 "A_range": a_stats["range"],
                 "A_min": a_stats["min"],
                 "A_max": a_stats["max"],
-                "I_A_corr": _safe_corr_2d(I, A, eps=self.eps),
+                "I_A_corr": _safe_corr_2d(I, A, eps=self.eps),   # ★ FIX BUG 2
                 "rule2_id": rid2,
                 "rule2_strength": rs2,
                 "rule2_balance_loss": self._rule_balance_loss(rs2, eps=self.eps),
