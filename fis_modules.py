@@ -393,61 +393,35 @@ class FIS_SpatialPowerController(nn.Module):
     # ====================================================================
     @staticmethod
     def _channel_condition_z(
-        z: torch.Tensor,
-        channel_rel: torch.Tensor,
-        eps: float = 1e-8,
+      z: torch.Tensor,
+      channel_rel: torch.Tensor,
+      training: bool,
+      eps: float = 1e-8,
     ) -> torch.Tensor:
-        """
-        Scale latent z by channel reliability before computing importance.
 
-        WHY: Under block fading, channel_rel is a scalar (B,1,1,1) —
-        spatially uniform. Layer-2 fuzzy rules then become degenerate
-        because cL, cM, cH are identical for all pixels, making
-        full mode ≈ linear mode.
+      B, C, H, W = z.shape
 
-        SOLUTION: Condition z by channel_rel BEFORE Layer-1:
-          - Create per-channel variation: add small noise to each channel
-            of z scaled by (1 - channel_rel), so channels experience
-            different effective fading.
-          - Layer-1 then sees a z that varies across both spatial AND
-            channel dimensions depending on channel quality.
-          - The resulting importance map I inherits this variation,
-            giving Layer-2 meaningful spatial diversity to work with.
+      if channel_rel.dim() == 1:
+          cr = channel_rel.view(B, 1, 1, 1)
+      else:
+          cr = channel_rel.view(B, 1, 1, 1)
 
-        Args:
-            z: encoder latent, shape (B, C, H, W)
-            channel_rel: channel reliability, shape (B,) or (B,1,1,1)
-            eps: numerical stability
+      cr = cr.to(device=z.device, dtype=z.dtype).clamp(0.0, 1.0)
 
-        Returns:
-            z_cond: conditioned latent, shape (B, C, H, W)
-        """
-        B, C, H, W = z.shape
+      # scale theo kênh
+      global_scale = cr.sqrt().clamp_min(eps)
 
-        # Normalize channel_rel to (B,1,1,1)
-        if channel_rel.dim() == 1:
-            cr = channel_rel.view(B, 1, 1, 1)
-        else:
-            cr = channel_rel.view(B, 1, 1, 1)
+      if training:
+          noise_mag = 0.3 * (1.0 - cr)
+          channel_noise = torch.randn(B, C, 1, 1, device=z.device, dtype=z.dtype)
+          noise_mag = noise_mag.expand_as(channel_noise)
+          per_channel_scale = (1.0 + noise_mag * channel_noise).clamp(eps, 2.0)
+      else:
+          # 🔥 QUAN TRỌNG: eval → KHÔNG random
+          per_channel_scale = torch.ones(B, C, 1, 1, device=z.device, dtype=z.dtype)
 
-        # Step 1: Global scaling — weak channels → overall weaker z
-        # sqrt because we're scaling amplitude, not power
-        global_scale = cr.sqrt().clamp_min(eps)
-
-        # Step 2: Per-channel perturbation — create spatial variation
-        # Noise magnitude is LARGER when channel is WORSE (1 - cr)
-        # This simulates the effect of per-subcarrier fading diversity
-        noise_mag = 0.3 * (1.0 - cr)  # (B,1,1,1): 0 when good, 0.3 when bad
-        # Per-channel noise: different for each of C channels
-        channel_noise = torch.randn(B, C, 1, 1, device=z.device, dtype=z.dtype)
-        # Broadcast noise_mag from (B,1,1,1) to match (B,C,1,1)
-        noise_mag = noise_mag.expand_as(channel_noise)
-        per_channel_scale = (1.0 + noise_mag * channel_noise).clamp(eps, 2.0)
-
-        # Combine: global scaling × per-channel variation
-        z_cond = z * global_scale * per_channel_scale
-
-        return z_cond
+      z_cond = z * global_scale * per_channel_scale
+      return z_cond
 
     def forward(
         self,
@@ -495,7 +469,19 @@ class FIS_SpatialPowerController(nn.Module):
         # ====================================================================
         z_for_importance = z
         if mode == "full" and channel_rel is not None:
-            z_for_importance = self._channel_condition_z(z, channel_rel, eps=self.eps)
+            z_for_importance = self._channel_condition_z(
+                z,
+                channel_rel,
+                training=self.training,
+                eps=self.eps,
+            )
+
+            if return_info:
+                info["channel_condition_noise_active"] = torch.tensor(
+                    1.0 if self.training else 0.0,
+                    device=z.device,
+                    dtype=z.dtype,
+                )
 
         if return_info:
             I, rid1, rs1 = self.imp(z_for_importance, return_rules=True)
