@@ -1,31 +1,35 @@
+# -*- coding: utf-8 -*-
+"""
+DeepJSCC + FIS spatial power controller.
+
+Fix vs repo:
+-----------
+- Pass num_fading_taps to Channel based on encoder output channels c.
+- num_fading_taps = c // 2  ->  per-subcarrier fading
+- channel_rel now shape (B, num_taps) -> controller gets richer channel info.
+"""
 import torch
 import torch.nn as nn
 
-from channel import Channel
+from channel import Channel           # ★ use fixed channel
 from model_baseline import ratio2filtersize, _Encoder, _Decoder
-from fis_modules import FIS_SpatialPowerController
+from fis_modules import FIS_SpatialPowerController  # ★ use fixed FIS
 
 
 def power_normalize(z: torch.Tensor, P: float = 1.0, eps: float = 1e-8) -> torch.Tensor:
-    """
-    Per-sample power normalization so that mean(z^2) = P.
-
-    z: [B,C,H,W] real-valued (I/Q stacked channels)
-    """
+    """Per-sample power normalization so that mean(z^2) = P."""
     p = z.pow(2).mean(dim=(1, 2, 3), keepdim=True).clamp_min(eps)
     scale = torch.sqrt(torch.tensor(P, device=z.device, dtype=z.dtype) / p)
     return z * scale
 
 
 class DeepJSCC_FIS(nn.Module):
-    """
-    Deep-JSCC backbone + interpretable FIS spatial power controller.
+    """Deep-JSCC backbone + FIS spatial power controller.
 
-    This patch keeps the backbone unchanged but adds an optional
-    transmitter-side channel context for the controller. The context is
-    sampled from the same block-fading realization that is applied by
-    channel.forward(), which makes the controller fading-aware without
-    turning the method into a new backbone.
+    ★ FIX ISSUE 3: num_fading_taps is set from encoder channel count c.
+      When c=6 (CIFAR-10), num_fading_taps=3 -> per-subcarrier fading.
+      channel_rel becomes (B, 3) instead of (B,) -> Layer-2 receives
+      genuine per-channel channel information.
     """
 
     def __init__(
@@ -55,7 +59,18 @@ class DeepJSCC_FIS(nn.Module):
         self.c = int(c)
         self.encoder = _Encoder(c=self.c, P=P, apply_norm=False)
         self.decoder = _Decoder(self.c)
-        self.channel = Channel(channel_type=channel_type, P=P, rician_k=rician_k)
+
+        # ★ FIX ISSUE 3: set num_fading_taps = c // 2 (per-subcarrier)
+        # When c=6 -> 3 fading taps -> channel_rel shape (B, 3)
+        # When c=8 -> 4 fading taps -> channel_rel shape (B, 4)
+        num_fading_taps = self.c // 2
+
+        self.channel = Channel(
+            channel_type=channel_type,
+            P=P,
+            rician_k=rician_k,
+            num_fading_taps=num_fading_taps,    # ★ NEW
+        )
         self.P = float(P)
 
         self.controller = FIS_SpatialPowerController(
@@ -105,15 +120,20 @@ class DeepJSCC_FIS(nn.Module):
                 dtype=z.dtype,
             )
 
+        # channel_rel: (B,) for block fading, (B, num_taps) for per-subcarrier
+        channel_rel_val = None
+        if channel_ctx is not None:
+            channel_rel_val = channel_ctx.get(
+                "channel_rel", channel_ctx["gamma_eff_norm"]
+            )
+
         if return_info:
             A, info = self.controller(
                 z,
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                channel_rel=None if channel_ctx is None else channel_ctx.get(
-                    "channel_rel", channel_ctx["gamma_eff_norm"]
-                ),
+                channel_rel=channel_rel_val,
                 return_info=True,
             )
         else:
@@ -122,17 +142,12 @@ class DeepJSCC_FIS(nn.Module):
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                channel_rel=None if channel_ctx is None else channel_ctx.get(
-                    "channel_rel", channel_ctx["gamma_eff_norm"]
-                ),
+                channel_rel=channel_rel_val,
                 return_info=False,
             )
 
-        # A is an amplitude map, not a power map.
         gain = A.clamp_min(self.eps)
         z_g = z * gain.unsqueeze(1)
-
-        # Preserve the same average transmit power as the baseline.
         z_tx = power_normalize(z_g, P=self.P, eps=self.eps)
 
         self.channel.change_snr(snr)
