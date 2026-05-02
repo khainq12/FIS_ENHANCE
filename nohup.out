@@ -1,0 +1,233 @@
+📝 Log file: logs/run_20260502_091532.log
+🔧 MODE:
+🔥 Warmstart ON
+🚀 START PIPELINE
+
+------------------------------------------------------------
+python -u train_baseline.py   --dataset cifar10 --image_size 32   --channel AWGN   --snr_min 1 --snr_max 13   --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_awgn_baseline_AWGN 
+------------------------------------------------------------
+/media/data/students/nguyenquangkhai/project1/jscc311/lib/python3.11/site-packages/torch/cuda/__init__.py:435: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  queued_call()
+Rayleigh equalization: False
+Eval SNR list: [1.0, 4.0, 7.0, 10.0, 13.0]
+Epoch 001 | loss=0.017036 | mean_PSNR=20.323 dB | time=9.7s
+Epoch 002 | loss=0.007936 | mean_PSNR=21.664 dB | time=9.3s
+Epoch 003 | loss=0.006206 | mean_PSNR=22.482 dB | time=10.5s
+Epoch 004 | loss=0.005394 | mean_PSNR=22.683 dB | time=10.8s
+Epoch 005 | loss=0.004813 | mean_PSNR=23.352 dB | time=10.8s
+Epoch 006 | loss=0.004457 | mean_PSNR=23.413 dB | time=10.5s
+Epoch 007 | loss=0.004175 | mean_PSNR=23.960 dB | time=10.8s
+Epoch 008 | loss=0.003989 | mean_PSNR=24.142 dB | time=10.8s
+Epoch 009 | loss=0.003753 | mean_PSNR=24.318 dB | time=10.5s
+Epoch 010 | loss=0.003623 | mean_PSNR=24.271 dB | time=10.5s
+Epoch 011 | loss=0.003520 | mean_PSNR=24.602 dB | time=10.1s
+Epoch 012 | loss=0.003337 | mean_PSNR=24.859 dB | time=10.7s
+Epoch 013 | loss=0.003256 | mean_PSNR=25.060 dB | time=9.2s
+Epoch 014 | loss=0.003106 | mean_PSNR=24.996 dB | time=8.2s
+Epoch 015 | loss=0.003054 | mean_PSNR=25.240 dB | time=8.8s
+Epoch 016 | loss=0.002984 | mean_PSNR=25.351 dB | time=8.2s
+Epoch 017 | loss=0.002914 | mean_PSNR=25.285 dB | time=8.8s
+Epoch 018 | loss=0.053279 | mean_PSNR=12.204 dB | time=8.8s
+Epoch 019 | loss=0.039283 | mean_PSNR=16.558 dB | time=8.7s
+Epoch 020 | loss=0.017750 | mean_PSNR=18.648 dB | time=8.6s
+Epoch 021 | loss=0.012354 | mean_PSNR=19.296 dB | time=8.9s
+Epoch 022 | loss=0.010748 | mean_PSNR=19.847 dB | time=8.3s
+Epoch 023 | loss=0.009253 | mean_PSNR=20.952 dB | time=8.6s
+Epoch 024 | loss=0.007288 | mean_PSNR=21.934 dB | time=8.5s
+Epoch 025 | loss=0.005849 | mean_PSNR=22.822 dB | time=8.9s
+Epoch 026 | loss=0.004957 | mean_PSNR=23.360 dB | time=8.4s
+Epoch 027 | loss=0.004438 | mean_PSNR=23.747 dB | time=8.9s
+Epoch 028 | loss=0.004050 | mean_PSNR=23.856 dB | time=8.8s
+Epoch 029 | loss=0.003744 | mean_PSNR=24.475 dB | time=8.6s
+Epoch 030 | loss=0.003542 | mean_PSNR=24.607 dB | time=8.7s
+Epoch 031 | loss=0.003288 | mean_PSNR=24.938 dB | time=8.5s
+Epoch 032 | loss=0.003132 | mean_PSNR=25.203 dB | time=8.5s
+Epoch 033 | loss=0.003016 | mean_PSNR=25.363 dB | time=8.4s
+Epoch 034 | loss=0.002974 | mean_PSNR=24.963 dB | time=8.5s
+Epoch 035 | loss=0.002857 | mean_PSNR=25.582 dB | time=8.6s
+Epoch 036 | loss=0.002800 | mean_PSNR=25.565 dB | time=8.7s
+Epoch 037 | loss=0.031345 | mean_PSNR=18.224 dB | time=8.2s
+Epoch 038 | loss=0.010711 | mean_PSNR=21.492 dB | time=8.5s
+Epoch 039 | loss=0.005851 | mean_PSNR=23.280 dB | time=8.5s
+Epoch 040 | loss=0.004159 | mean_PSNR=24.185 dB | time=8.4s
+Epoch 041 | loss=0.003560 | mean_PSNR=24.552 dB | time=8.7s
+Epoch 042 | loss=0.003335 | mean_PSNR=24.945 dB | time=8.5s
+Epoch 043 | loss=0.003107 | mean_PSNR=25.247 dB | time=9.3s
+Epoch 044 | loss=0.002954 | mean_PSNR=25.288 dB | time=8.4s
+Epoch 045 | loss=0.002912 | mean_PSNR=25.226 dB | time=9.0s
+Epoch 046 | loss=0.002872 | mean_PSNR=25.544 dB | time=8.7s
+Epoch 047 | loss=0.002850 | mean_PSNR=25.656 dB | time=8.8s
+Epoch 048 | loss=0.002731 | mean_PSNR=25.318 dB | time=8.4s
+Epoch 049 | loss=0.002745 | mean_PSNR=25.688 dB | time=8.7s
+Epoch 050 | loss=0.002669 | mean_PSNR=25.624 dB | time=8.6s
+Epoch 051 | loss=0.002672 | mean_PSNR=25.711 dB | time=8.5s
+Epoch 052 | loss=0.002716 | mean_PSNR=25.798 dB | time=8.8s
+Epoch 053 | loss=0.002669 | mean_PSNR=25.749 dB | time=8.5s
+Epoch 054 | loss=0.002580 | mean_PSNR=25.785 dB | time=9.1s
+Epoch 055 | loss=0.002636 | mean_PSNR=25.863 dB | time=8.9s
+Epoch 056 | loss=0.002514 | mean_PSNR=25.893 dB | time=8.6s
+Epoch 057 | loss=0.002553 | mean_PSNR=25.974 dB | time=8.5s
+Epoch 058 | loss=0.002560 | mean_PSNR=26.114 dB | time=8.6s
+Epoch 059 | loss=0.002453 | mean_PSNR=26.071 dB | time=9.0s
+Epoch 060 | loss=0.002452 | mean_PSNR=26.207 dB | time=8.3s
+Epoch 061 | loss=0.002396 | mean_PSNR=26.216 dB | time=8.5s
+Epoch 062 | loss=0.002394 | mean_PSNR=25.944 dB | time=8.4s
+Epoch 063 | loss=0.002433 | mean_PSNR=26.332 dB | time=8.5s
+Epoch 064 | loss=0.002386 | mean_PSNR=26.304 dB | time=8.6s
+Epoch 065 | loss=0.049295 | mean_PSNR=12.763 dB | time=8.8s
+Epoch 066 | loss=0.029709 | mean_PSNR=16.955 dB | time=8.8s
+Epoch 067 | loss=0.016580 | mean_PSNR=19.008 dB | time=8.7s
+Epoch 068 | loss=0.011056 | mean_PSNR=20.271 dB | time=8.7s
+Epoch 069 | loss=0.007682 | mean_PSNR=21.773 dB | time=8.8s
+Epoch 070 | loss=0.005387 | mean_PSNR=23.304 dB | time=8.3s
+Epoch 071 | loss=0.004149 | mean_PSNR=24.363 dB | time=8.6s
+Epoch 072 | loss=0.003426 | mean_PSNR=24.891 dB | time=8.9s
+Epoch 073 | loss=0.003033 | mean_PSNR=25.050 dB | time=8.6s
+Epoch 074 | loss=0.002980 | mean_PSNR=25.528 dB | time=8.9s
+Epoch 075 | loss=0.002784 | mean_PSNR=25.777 dB | time=8.9s
+Epoch 076 | loss=0.002685 | mean_PSNR=25.895 dB | time=8.9s
+Epoch 077 | loss=0.002634 | mean_PSNR=25.853 dB | time=8.6s
+Epoch 078 | loss=0.002517 | mean_PSNR=26.084 dB | time=8.6s
+Epoch 079 | loss=0.002526 | mean_PSNR=25.813 dB | time=8.7s
+Epoch 080 | loss=0.002491 | mean_PSNR=25.880 dB | time=8.2s
+Epoch 081 | loss=0.002518 | mean_PSNR=26.242 dB | time=8.2s
+Epoch 082 | loss=0.002391 | mean_PSNR=26.321 dB | time=8.4s
+Epoch 083 | loss=0.002453 | mean_PSNR=26.307 dB | time=8.8s
+Epoch 084 | loss=0.002476 | mean_PSNR=26.343 dB | time=8.5s
+Epoch 085 | loss=0.002395 | mean_PSNR=26.156 dB | time=8.2s
+Epoch 086 | loss=0.002390 | mean_PSNR=26.082 dB | time=8.6s
+Epoch 087 | loss=0.002265 | mean_PSNR=26.252 dB | time=8.2s
+Epoch 088 | loss=0.002384 | mean_PSNR=26.397 dB | time=8.5s
+Epoch 089 | loss=0.002372 | mean_PSNR=26.433 dB | time=8.3s
+Epoch 090 | loss=0.002301 | mean_PSNR=26.405 dB | time=8.4s
+Epoch 091 | loss=0.002316 | mean_PSNR=25.829 dB | time=8.6s
+Epoch 092 | loss=0.002345 | mean_PSNR=26.555 dB | time=9.0s
+Epoch 093 | loss=0.002326 | mean_PSNR=26.380 dB | time=8.8s
+Epoch 094 | loss=0.002323 | mean_PSNR=26.223 dB | time=8.3s
+Epoch 095 | loss=0.002272 | mean_PSNR=26.158 dB | time=8.4s
+Epoch 096 | loss=0.002234 | mean_PSNR=26.654 dB | time=8.8s
+Epoch 097 | loss=0.002269 | mean_PSNR=26.566 dB | time=8.7s
+Epoch 098 | loss=0.002263 | mean_PSNR=26.629 dB | time=8.4s
+Epoch 099 | loss=0.002189 | mean_PSNR=26.649 dB | time=9.3s
+Epoch 100 | loss=0.002301 | mean_PSNR=26.647 dB | time=8.7s
+Best mean PSNR: 26.65372017486186
+🔥 Warmstart from exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth
+
+------------------------------------------------------------
+python -u train_fis_power.py   --dataset cifar10 --image_size 32   --channel AWGN --mode linear --budget 1.0   --snr_min 1 --snr_max 13   --train_snr_list 1 4 7 10 13 --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_awgn_linear_AWGN --baseline_ckpt exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth   --warmstart_controller_only_epochs 10   --finetune_lr 1e-5 
+------------------------------------------------------------
+Traceback (most recent call last):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/train_fis_power.py", line 27, in <module>
+    from model import DeepJSCC_FIS
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/model.py", line 16, in <module>
+    from fis_modules import FIS_SpatialPowerController  # ★ use fixed FIS
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 172, in <module>
+    class FIS_PowerAllocation(nn.Module):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 257, in FIS_PowerAllocation
+    ) -> Tuple[torch.Tensor, torch.Tensor | None]:
+         ^^^^^
+NameError: name 'Tuple' is not defined. Did you mean: 'tuple'?
+🔥 Warmstart from exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth
+
+------------------------------------------------------------
+python -u train_fis_power.py   --dataset cifar10 --image_size 32   --channel AWGN --mode importance_only --budget 1.0   --snr_min 1 --snr_max 13   --train_snr_list 1 4 7 10 13 --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_awgn_importance_only_AWGN --baseline_ckpt exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth   --warmstart_controller_only_epochs 10   --finetune_lr 1e-5 
+------------------------------------------------------------
+Traceback (most recent call last):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/train_fis_power.py", line 27, in <module>
+    from model import DeepJSCC_FIS
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/model.py", line 16, in <module>
+    from fis_modules import FIS_SpatialPowerController  # ★ use fixed FIS
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 172, in <module>
+    class FIS_PowerAllocation(nn.Module):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 257, in FIS_PowerAllocation
+    ) -> Tuple[torch.Tensor, torch.Tensor | None]:
+         ^^^^^
+NameError: name 'Tuple' is not defined. Did you mean: 'tuple'?
+🔥 Warmstart from exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth
+
+------------------------------------------------------------
+python -u train_fis_power.py   --dataset cifar10 --image_size 32   --channel AWGN --mode snr_only --budget 1.0   --snr_min 1 --snr_max 13   --train_snr_list 1 4 7 10 13 --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_awgn_snr_only_AWGN --baseline_ckpt exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth   --warmstart_controller_only_epochs 10   --finetune_lr 1e-5 
+------------------------------------------------------------
+Traceback (most recent call last):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/train_fis_power.py", line 27, in <module>
+    from model import DeepJSCC_FIS
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/model.py", line 16, in <module>
+    from fis_modules import FIS_SpatialPowerController  # ★ use fixed FIS
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 172, in <module>
+    class FIS_PowerAllocation(nn.Module):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 257, in FIS_PowerAllocation
+    ) -> Tuple[torch.Tensor, torch.Tensor | None]:
+         ^^^^^
+NameError: name 'Tuple' is not defined. Did you mean: 'tuple'?
+🔥 Warmstart from exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth
+
+------------------------------------------------------------
+python -u train_fis_power.py   --dataset cifar10 --image_size 32   --channel AWGN --mode full --budget 1.0   --snr_min 1 --snr_max 13   --train_snr_list 1 4 7 10 13 --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_awgn_full_AWGN --baseline_ckpt exp_ctx/ckpts_awgn_baseline_AWGN/baseline_best.pth   --warmstart_controller_only_epochs 10   --finetune_lr 1e-5 
+------------------------------------------------------------
+Traceback (most recent call last):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/train_fis_power.py", line 27, in <module>
+    from model import DeepJSCC_FIS
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/model.py", line 16, in <module>
+    from fis_modules import FIS_SpatialPowerController  # ★ use fixed FIS
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 172, in <module>
+    class FIS_PowerAllocation(nn.Module):
+  File "/media/data/students/nguyenquangkhai/project1/JSCC_FIS/Deep-JSCC-PyTorch/fis_modules.py", line 257, in FIS_PowerAllocation
+    ) -> Tuple[torch.Tensor, torch.Tensor | None]:
+         ^^^^^
+NameError: name 'Tuple' is not defined. Did you mean: 'tuple'?
+
+------------------------------------------------------------
+python -u train_baseline.py   --dataset cifar10 --image_size 32   --channel Rayleigh   --snr_min 1 --snr_max 13   --eval_snr_list 1 4 7 10 13   --save_dir exp_ctx/ckpts_noeq_baseline_Rayleigh 
+------------------------------------------------------------
+/media/data/students/nguyenquangkhai/project1/jscc311/lib/python3.11/site-packages/torch/cuda/__init__.py:435: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  queued_call()
+Rayleigh equalization: False
+Eval SNR list: [1.0, 4.0, 7.0, 10.0, 13.0]
+Epoch 001 | loss=0.027066 | mean_PSNR=17.811 dB | time=10.0s
+Epoch 002 | loss=0.014409 | mean_PSNR=18.824 dB | time=8.9s
+Epoch 003 | loss=0.012656 | mean_PSNR=19.214 dB | time=10.7s
+Epoch 004 | loss=0.011537 | mean_PSNR=19.599 dB | time=11.1s
+Epoch 005 | loss=0.010693 | mean_PSNR=19.732 dB | time=10.5s
+Epoch 006 | loss=0.010051 | mean_PSNR=20.114 dB | time=11.2s
+Epoch 007 | loss=0.009510 | mean_PSNR=20.310 dB | time=11.2s
+Epoch 008 | loss=0.009176 | mean_PSNR=20.580 dB | time=10.9s
+Epoch 009 | loss=0.008720 | mean_PSNR=20.750 dB | time=11.0s
+Epoch 010 | loss=0.008522 | mean_PSNR=20.818 dB | time=10.4s
+Epoch 011 | loss=0.008280 | mean_PSNR=20.852 dB | time=10.9s
+Epoch 012 | loss=0.008008 | mean_PSNR=21.073 dB | time=10.8s
+Epoch 013 | loss=0.007881 | mean_PSNR=21.099 dB | time=9.0s
+Epoch 014 | loss=0.007761 | mean_PSNR=21.056 dB | time=8.4s
+Epoch 015 | loss=0.007557 | mean_PSNR=21.272 dB | time=8.8s
+Epoch 016 | loss=0.007535 | mean_PSNR=21.370 dB | time=9.2s
+Epoch 017 | loss=0.007514 | mean_PSNR=21.361 dB | time=8.6s
+Epoch 018 | loss=0.007067 | mean_PSNR=21.273 dB | time=8.8s
+Epoch 019 | loss=0.007242 | mean_PSNR=21.596 dB | time=8.3s
+Epoch 020 | loss=0.006961 | mean_PSNR=21.599 dB | time=9.5s
+Epoch 021 | loss=0.006952 | mean_PSNR=21.608 dB | time=9.1s
+Epoch 022 | loss=0.006782 | mean_PSNR=21.734 dB | time=9.0s
+Epoch 023 | loss=0.006839 | mean_PSNR=21.713 dB | time=8.5s
+Epoch 024 | loss=0.006759 | mean_PSNR=21.709 dB | time=8.9s
+Epoch 025 | loss=0.006663 | mean_PSNR=21.865 dB | time=9.0s
+Epoch 026 | loss=0.006750 | mean_PSNR=21.923 dB | time=8.7s
+Epoch 027 | loss=0.006613 | mean_PSNR=21.925 dB | time=8.7s
+Epoch 028 | loss=0.006403 | mean_PSNR=21.919 dB | time=9.5s
+Epoch 029 | loss=0.006398 | mean_PSNR=21.941 dB | time=8.7s
+Epoch 030 | loss=0.006417 | mean_PSNR=22.071 dB | time=9.0s
+Epoch 031 | loss=0.006394 | mean_PSNR=21.988 dB | time=8.8s
+Epoch 032 | loss=0.006353 | mean_PSNR=22.104 dB | time=9.3s
+Epoch 033 | loss=0.006310 | mean_PSNR=22.048 dB | time=8.7s
+Epoch 034 | loss=0.006317 | mean_PSNR=22.152 dB | time=8.7s
+Epoch 035 | loss=0.006260 | mean_PSNR=22.020 dB | time=9.0s
+Epoch 036 | loss=0.006146 | mean_PSNR=22.131 dB | time=9.1s

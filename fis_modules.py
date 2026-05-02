@@ -26,6 +26,7 @@ Fixes applied (vs repo feature/fis-channel-aware-controller-r2):
 
 import torch
 import torch.nn as nn
+from typing import Tuple, Optional
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -225,7 +226,7 @@ class FIS_PowerAllocation(nn.Module):
         snr_u: float,
         C: torch.Tensor,
         mix: float = 0.6,
-        channel_imbalance: torch.Tensor | None = None,
+        channel_imbalance: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Build redistribution strength from SNR + channel reliability + imbalance."""
         c_bar = C.mean(dim=(1, 2), keepdim=True)
@@ -251,10 +252,10 @@ class FIS_PowerAllocation(nn.Module):
 
     def _prepare_channel_rel(
         self,
-        channel_rel: torch.Tensor | None,
+        channel_rel: Optional[torch.Tensor],
         I: torch.Tensor,
         snr_db: float,
-    ) -> Tuple[torch.Tensor, torch.Tensor | None]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Convert channel_rel to spatial map + optional imbalance tensor.
 
         Returns
@@ -314,12 +315,12 @@ class FIS_PowerAllocation(nn.Module):
         I: torch.Tensor,
         snr_db: float,
         budget: float = 1.0,
-        channel_rel: torch.Tensor | None = None,
+        channel_rel: Optional[torch.Tensor] = None,
         return_rules: bool = False,
     ):
         s = self._snr_unit(snr_db, device=I.device, dtype=I.dtype)
 
-        # ★ Returns (C_map, channel_imbalance)
+        # Returns (C_map, channel_imbalance)
         C, channel_imbalance = self._prepare_channel_rel(
             channel_rel, I, snr_db
         )
@@ -507,7 +508,7 @@ class FIS_SpatialPowerController(nn.Module):
         snr_db: float,
         budget: float,
         mode: str = "full",
-        channel_rel: torch.Tensor | None = None,
+        channel_rel: Optional[torch.Tensor] = None,
         return_info: bool = False,
     ):
         info = {}
