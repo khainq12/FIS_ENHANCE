@@ -1,6 +1,0 @@
-{
-  "linear": "exp_ctx/ckpts_eq_linear_Rayleigh_eq/fis_power_best.pth",
-  "importance_only": "exp_ctx/ckpts_eq_importance_only_Rayleigh_eq/fis_power_best.pth",
-  "snr_only": "exp_ctx/ckpts_eq_snr_only_Rayleigh_eq/fis_power_best.pth",
-  "full": "exp_ctx/ckpts_eq_full_Rayleigh_eq/fis_power_best.pth"
-}

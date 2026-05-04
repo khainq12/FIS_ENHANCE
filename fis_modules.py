@@ -22,6 +22,20 @@ Fixes applied (vs repo feature/fis-channel-aware-controller-r2):
 5) BUG 4: alpha_linear is nn.Parameter (learnable)
 
 6) Rule balance loss available via _rule_balance_loss()
+
+Patch r3 fixes (root-cause fixes for full < linear):
+-----------------------------------------------------
+A) FIS_Importance: replace _minmax_norm with _lognorm_batch.
+   _minmax_norm was erasing amplitude information per-sample so
+   channel_rel had zero effect on I. _lognorm_batch normalises
+   across the batch, preserving relative magnitude between samples
+   so a low-reliability channel produces genuinely lower activations.
+
+B) FIS_PowerAllocation: good-channel attenuation threshold raised
+   0.90 -> 0.97 (strength 0.2 -> 0.1) and bypass threshold raised
+   0.98 -> 0.999. On AWGN channel_rel=1.0 always, so the old
+   thresholds caused the controller to self-disable every forward
+   pass, making full == snr_only.
 """
 
 import torch
@@ -49,6 +63,35 @@ def _minmax_norm(x: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
         x_max = x.view(b, -1).max(dim=1)[0].view(b, 1, 1)
         return (x - x_min) / (x_max - x_min + eps)
     raise ValueError(f"Expected 3D/4D tensor, got shape {tuple(x.shape)}")
+
+
+def _lognorm_batch(x: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Log-scale normalisation that preserves inter-sample amplitude differences.
+
+    Unlike _minmax_norm (which normalises per-sample and therefore erases
+    any amplitude difference caused by channel scaling), this function
+    normalises relative to the batch-level mean and std AFTER a log1p
+    transform.  A sample whose z was scaled down by a bad channel will
+    produce genuinely smaller m/v/e values and therefore land in different
+    fuzzy membership bins from a good-channel sample.
+
+    Output is sigmoid-squashed to [0, 1] so membership functions still work.
+    """
+    if x.dim() not in (3, 4):
+        raise ValueError(f"Expected 3D/4D tensor, got shape {tuple(x.shape)}")
+    x_log = torch.log1p(x.clamp_min(0.0))          # log(1 + x), always >= 0
+    # Compute mean/std over spatial dims of each sample, then average over batch
+    # so the reference point is stable across different batch sizes.
+    if x_log.dim() == 3:
+        sample_mean = x_log.mean(dim=(1, 2), keepdim=True)   # (B,1,1)
+        sample_std  = x_log.std(dim=(1, 2), keepdim=True).clamp_min(eps)
+    else:
+        sample_mean = x_log.mean(dim=(1, 2, 3), keepdim=True)
+        sample_std  = x_log.std(dim=(1, 2, 3), keepdim=True).clamp_min(eps)
+    batch_mean = sample_mean.mean(dim=0, keepdim=True)        # (1,...) — batch anchor
+    batch_std  = sample_std.mean(dim=0, keepdim=True).clamp_min(eps)
+    z_score = (x_log - batch_mean) / batch_std
+    return torch.sigmoid(z_score)                             # maps to (0, 1)
 
 
 def _mean_normalize(A: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -138,9 +181,15 @@ class FIS_Importance(nn.Module):
         v = z.var(dim=1, unbiased=False)
         e = self._edge_from_m(m)
 
-        m = _minmax_norm(m, self.eps)
-        v = _minmax_norm(v, self.eps)
-        e = _minmax_norm(e, self.eps)
+        # ★ PATCH r3-A: use _lognorm_batch instead of _minmax_norm.
+        # _minmax_norm normalises per-sample so channel scaling (from
+        # _channel_condition_z) is completely erased before membership
+        # functions see the data.  _lognorm_batch uses a batch-level
+        # reference point, so samples from a bad channel produce lower
+        # activations and land in different fuzzy bins.
+        m = _lognorm_batch(m, self.eps)
+        v = _lognorm_batch(v, self.eps)
+        e = _lognorm_batch(e, self.eps)
 
         mL, mM, mH = _mf_low(m), _mf_med(m), _mf_high(m)
         vL, vM, vH = _mf_low(v), _mf_med(v), _mf_high(v)
@@ -353,18 +402,23 @@ class FIS_PowerAllocation(nn.Module):
             float(s), C, mix=0.6, channel_imbalance=channel_imbalance
         )
 
-        # Good-channel attenuation
+        # ★ PATCH r3-B: good-channel attenuation thresholds raised.
+        # Old values (0.90 / strength 0.2) caused the controller to
+        # self-attenuate on AWGN (channel_rel always = 1.0) and on
+        # high-SNR Rayleigh, making full ≈ snr_only.
+        # New values only activate when the channel is nearly perfect.
         c_bar = C.mean(dim=(1, 2), keepdim=True)
-        good_gate = torch.clamp((c_bar - 0.90) / 0.10, 0.0, 1.0)
-        delta = delta * (1.0 - 0.2 * good_gate)
+        good_gate = torch.clamp((c_bar - 0.97) / 0.03, 0.0, 1.0)
+        delta = delta * (1.0 - 0.1 * good_gate)
 
         amp = delta
         A_fis = torch.exp(amp * torch.tanh(score))
         A_fis = A_fis.clamp(min=self.a_min, max=self.a_high)
 
-        # ★ FIX: bypass threshold 0.95 -> 0.98 (narrower, lets budget work)
+        # ★ PATCH r3-B: bypass threshold raised 0.98 -> 0.999.
+        # Old threshold fired on every AWGN forward pass.
         c_bar = C.mean(dim=(1, 2), keepdim=True)
-        bypass = torch.clamp((c_bar - 0.98) / 0.02, 0.0, 1.0)
+        bypass = torch.clamp((c_bar - 0.999) / 0.001, 0.0, 1.0)
         A_fis = (1.0 - bypass) * A_fis + bypass * torch.ones_like(A_fis)
 
         # Budget interpolation

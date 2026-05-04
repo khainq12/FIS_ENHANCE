@@ -287,9 +287,15 @@ class Channel(nn.Module):
 
         # ── channel_rel: fading quality ONLY (independent of SNR) ──
         if ct == "awgn":
-            # No fading -> channel always perfectly reliable
-            # Shape (B,) for backward compat
-            channel_rel = torch.ones(batch_size, device=device, dtype=dtype)
+            # ★ PATCH r3-C: use gamma_eff_norm (SNR-normalised) instead of
+            # a constant ones tensor.  With the old constant=1.0 the
+            # good-channel attenuation gate in FIS_PowerAllocation was always
+            # fully open, self-disabling the controller on every AWGN forward
+            # pass.  gamma_eff_norm varies with the configured SNR (low SNR →
+            # low value, high SNR → high value) so the controller now receives
+            # a meaningful signal even without fading.
+            # Shape: (B, n) after squeeze below (n = num_fading_taps).
+            channel_rel = gamma_eff_norm
         elif self._is_fading():
             if self._fading_equalize:
                 fading_rel = self._norm_db(10.0 * torch.log10(

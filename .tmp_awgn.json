@@ -1,6 +1,0 @@
-{
-  "linear": "exp_ctx/ckpts_awgn_linear_AWGN/fis_power_best.pth",
-  "importance_only": "exp_ctx/ckpts_awgn_importance_only_AWGN/fis_power_best.pth",
-  "snr_only": "exp_ctx/ckpts_awgn_snr_only_AWGN/fis_power_best.pth",
-  "full": "exp_ctx/ckpts_awgn_full_AWGN/fis_power_best.pth"
-}
